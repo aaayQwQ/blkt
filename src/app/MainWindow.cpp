@@ -238,7 +238,7 @@ void MainWindow::choosePlugin()
 
 Permissions MainWindow::selectedPermissions() const
 {
-    Permissions permissions = 0;
+    Permissions permissions{};
     if (m_receiveMessage->isChecked())
         permissions |= permissionFlag(Permission::ReceiveMessage);
     if (m_sendMessage->isChecked())
