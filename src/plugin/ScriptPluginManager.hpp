@@ -34,6 +34,8 @@ private:
     QString m_pluginId;
     Permissions m_permissions{};
     QHash<QString, QList<QJSValue>> m_handlers;
+    int m_callbackFailures = 0;
+    bool m_disabled = false;
 };
 
 class ScriptPluginManager final : public QObject

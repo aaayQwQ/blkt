@@ -78,7 +78,7 @@ bool ScriptPluginApi::on(const QString &eventName, const QJSValue &callback)
     const bool permitted =
         (eventName == QStringLiteral("message") && hasPermission(m_permissions, Permission::ReceiveMessage))
         || (eventName == QStringLiteral("gift") && hasPermission(m_permissions, Permission::ReceiveGift));
-    if (!permitted || !callback.isCallable() || !m_engine)
+    if (m_disabled || !permitted || !callback.isCallable() || !m_engine)
         return false;
     auto &handlers = m_handlers[eventName];
     if (handlers.size() >= 32)
@@ -119,16 +119,27 @@ void ScriptPluginApi::log(const QString &message)
 
 void ScriptPluginApi::dispatch(const QString &eventName, const QVariantMap &event)
 {
-    if (!m_engine)
+    if (!m_engine || m_disabled)
         return;
     const QJSValue argument = m_engine->toScriptValue(event);
     const auto handlers = m_handlers.value(eventName);
     for (const QJSValue &handler : handlers) {
         const QJSValue result = runWithScriptDeadline(
             m_engine, [&handler, &argument] { return handler.call({argument}); });
-        if (result.isError())
-            emit logMessage(QStringLiteral("Plugin %1 callback error: %2")
-                .arg(m_pluginId, result.toString().left(256)));
+        if (result.isError()) {
+            ++m_callbackFailures;
+            emit logMessage(QStringLiteral("Plugin %1 callback error (%2/3): %3")
+                .arg(m_pluginId).arg(m_callbackFailures).arg(result.toString().left(200)));
+            if (m_callbackFailures >= 3) {
+                m_disabled = true;
+                m_handlers.clear();
+                emit logMessage(QStringLiteral("Plugin %1 disabled after repeated script failures")
+                                    .arg(m_pluginId));
+                return;
+            }
+        } else {
+            m_callbackFailures = 0;
+        }
     }
 }
 
@@ -167,7 +178,7 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &dirInfo)
 {
     if (!dirInfo.isDir() || dirInfo.isSymLink()) return false;
     const QString id = dirInfo.fileName();
-    if (!safePluginId(id) || !m_allowedIds.contains(id) || m_plugins.contains(id)) return false;
+    if (!safePluginId(id) || !m_allowedIds.contains(id) || m_plugins.contains(id) || m_plugins.size() >= 16) return false;
     const QString root = QDir::cleanPath(m_directory.canonicalPath()) + QDir::separator();
     const QString path = QDir::cleanPath(dirInfo.canonicalFilePath());
     if (path.isEmpty() || !path.startsWith(root, Qt::CaseSensitive)) return false;

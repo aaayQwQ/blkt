@@ -9,6 +9,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC OFF)
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Network WebSockets Qml)
+find_package(Threads REQUIRED)
 
 add_executable(blkt
     src/main.cpp
@@ -18,7 +19,7 @@ add_executable(blkt
     src/plugin/IPlugin.hpp
     src/plugin/ScriptPluginManager.cpp src/plugin/ScriptPluginManager.hpp
 )
-target_link_libraries(blkt PRIVATE Qt6::Core Qt6::Network Qt6::WebSockets Qt6::Qml)
+target_link_libraries(blkt PRIVATE Qt6::Core Qt6::Network Qt6::WebSockets Qt6::Qml Threads::Threads)
 set_target_properties(blkt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>" WIN32_EXECUTABLE FALSE)
 if(APPLE)
     set_target_properties(blkt PROPERTIES
