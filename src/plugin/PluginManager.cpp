@@ -2,22 +2,61 @@
 #include "../core/Core.hpp"
 #include "../core/Guard.hpp"
 
-#include <QFileInfo>
-#include <QFile>
 #include <QCryptographicHash>
-#include <QLibrary>
+#include <QDateTime>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
 #include <QRegularExpression>
-#include <QSet>
-#include <QMetaObject>
+#include <QTextStream>
 
 namespace blkt {
+namespace {
+
+constexpr qint64 MaxPluginBytes = 256LL * 1024LL * 1024LL;
+
+QString normalizedId(const QString &value)
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"));
+    return pattern.match(value).hasMatch() ? value : QString();
+}
+
+QJsonObject messageToJson(const MessageEvent &event)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("type"), QStringLiteral("event"));
+    object.insert(QStringLiteral("event"), QStringLiteral("message"));
+    object.insert(QStringLiteral("user"), event.user);
+    object.insert(QStringLiteral("text"), event.text);
+    object.insert(QStringLiteral("timestamp"), static_cast<double>(event.timestamp));
+    return object;
+}
+
+QJsonObject giftToJson(const GiftEvent &event)
+{
+    QJsonObject object;
+    object.insert(QStringLiteral("type"), QStringLiteral("event"));
+    object.insert(QStringLiteral("event"), QStringLiteral("gift"));
+    object.insert(QStringLiteral("user"), event.user);
+    object.insert(QStringLiteral("gift_name"), event.giftName);
+    object.insert(QStringLiteral("gift_id"), QString::number(event.giftId));
+    object.insert(QStringLiteral("count"), static_cast<int>(event.count));
+    object.insert(QStringLiteral("total_coin"), QString::number(event.totalCoin));
+    object.insert(QStringLiteral("coin_type"), event.coinType);
+    object.insert(QStringLiteral("timestamp"), static_cast<double>(event.timestamp));
+    return object;
+}
+
+} // namespace
 
 PluginManager::PluginManager(Core *core, const QString &directory, QObject *parent)
     : QObject(parent), m_core(core), m_directory(directory)
 {
     m_debounce.setSingleShot(true);
-    m_debounce.setInterval(350);
-
+    m_debounce.setInterval(300);
     connect(&m_debounce, &QTimer::timeout, this, &PluginManager::syncDirectory);
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged,
             this, &PluginManager::scheduleSync);
@@ -26,33 +65,21 @@ PluginManager::PluginManager(Core *core, const QString &directory, QObject *pare
 
     if (m_core) {
         connect(m_core, &Core::messageReceived, this, [this](const MessageEvent &event) {
+            const QJsonObject packet = messageToJson(event);
             const auto entries = m_plugins;
-            for (const auto &entry : entries) {
-                if (!entry || !entry->active || !entry->plugin
-                    || !entry->permissions.testFlag(Permission::ReceiveMessage))
-                    continue;
-                try {
-                    entry->plugin->onMessage(event);
-                } catch (...) {
-                    const QString id = entry->context.pluginId;
-                    QMetaObject::invokeMethod(this, [this, id] { unloadPlugin(id); },
-                                              Qt::QueuedConnection);
-                }
+            for (Entry *entry : entries) {
+                if (entry && entry->ready
+                    && hasPermission(entry->permissions, Permission::ReceiveMessage))
+                    sendPacket(entry, packet);
             }
         });
         connect(m_core, &Core::giftReceived, this, [this](const GiftEvent &event) {
+            const QJsonObject packet = giftToJson(event);
             const auto entries = m_plugins;
-            for (const auto &entry : entries) {
-                if (!entry || !entry->active || !entry->plugin
-                    || !entry->permissions.testFlag(Permission::ReceiveGift))
-                    continue;
-                try {
-                    entry->plugin->onGift(event);
-                } catch (...) {
-                    const QString id = entry->context.pluginId;
-                    QMetaObject::invokeMethod(this, [this, id] { unloadPlugin(id); },
-                                              Qt::QueuedConnection);
-                }
+            for (Entry *entry : entries) {
+                if (entry && entry->ready
+                    && hasPermission(entry->permissions, Permission::ReceiveGift))
+                    sendPacket(entry, packet);
             }
         });
     }
@@ -61,7 +88,6 @@ PluginManager::PluginManager(Core *core, const QString &directory, QObject *pare
 PluginManager::~PluginManager()
 {
     stop();
-    m_lifetime.clear();
 }
 
 bool PluginManager::start()
@@ -69,16 +95,19 @@ bool PluginManager::start()
     if (m_running || !m_core)
         return false;
 
-    if (m_lifetime.isNull())
-        m_lifetime = QSharedPointer<int>::create(1);
-
-    if (!m_directory.exists() && !QDir().mkpath(m_directory.absolutePath()))
-        return false;
-    m_directory = QDir(m_directory.canonicalPath());
-    if (!m_directory.exists())
-        return false;
-
     m_running = true;
+    if (!m_directory.exists()) {
+        emit m_core->logMessage(QStringLiteral(
+            "Plugin directory is absent; no plugin files were created"));
+        return true;
+    }
+
+    const QString canonical = m_directory.canonicalPath();
+    if (canonical.isEmpty()) {
+        m_running = false;
+        return false;
+    }
+    m_directory = QDir(canonical);
     m_watcher.addPath(m_directory.absolutePath());
     syncDirectory();
     return true;
@@ -90,33 +119,42 @@ void PluginManager::stop()
         return;
 
     m_running = false;
-    m_lifetime.clear();
     m_debounce.stop();
     m_watcher.removePaths(m_watcher.files());
     m_watcher.removePaths(m_watcher.directories());
-    unloadAll();
+    stopAll();
 }
 
 void PluginManager::setGrantedPermissions(const QString &pluginId, Permissions permissions)
 {
-    static const QRegularExpression idPattern(
-        QStringLiteral("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"));
-    if (!idPattern.match(pluginId).hasMatch())
+    const QString id = normalizedId(pluginId);
+    if (id.isEmpty())
         return;
 
-    m_grants.insert(pluginId, permissions);
-    const auto it = m_plugins.find(pluginId);
-    if (it != m_plugins.end())
-        it.value()->permissions = permissions;
+    constexpr Permissions known = permissionFlag(Permission::ReceiveMessage)
+        | permissionFlag(Permission::SendMessage)
+        | permissionFlag(Permission::ReceiveGift)
+        | permissionFlag(Permission::GiftInfo);
+    permissions &= known;
+    m_grants.insert(id, permissions);
+
+    Entry *entry = m_plugins.value(id, nullptr);
+    if (entry) {
+        entry->permissions = permissions;
+        QJsonObject packet;
+        packet.insert(QStringLiteral("type"), QStringLiteral("permissions"));
+        packet.insert(QStringLiteral("permissions"), permissionsFor(permissions));
+        sendPacket(entry, packet);
+    }
 }
 
 bool PluginManager::trustPlugin(const QString &fileName, const QByteArray &sha256)
 {
     const QFileInfo nameInfo(fileName);
     static const QRegularExpression digestPattern(QStringLiteral("^[A-Fa-f0-9]{64}$"));
-    if (fileName.isEmpty() || fileName.contains(QLatin1Char('/'))
-        || fileName.contains(QLatin1Char('\\')) || nameInfo.fileName() != fileName
+    if (fileName.isEmpty() || nameInfo.fileName() != fileName
         || fileName == QStringLiteral(".") || fileName == QStringLiteral("..")
+        || fileName.contains(QLatin1Char('/')) || fileName.contains(QLatin1Char('\\'))
         || !digestPattern.match(QString::fromLatin1(sha256)).hasMatch())
         return false;
 
@@ -128,26 +166,46 @@ bool PluginManager::trustPlugin(const QString &fileName, const QByteArray &sha25
 void PluginManager::revokePluginTrust(const QString &fileName)
 {
     m_trustedHashes.remove(fileName);
-
-    QStringList toUnload;
+    QStringList remove;
     for (auto it = m_plugins.cbegin(); it != m_plugins.cend(); ++it) {
         if (QFileInfo(it.value()->canonicalPath).fileName() == fileName)
-            toUnload.append(it.key());
+            remove.append(it.key());
     }
-    for (const QString &pluginId : toUnload)
-        unloadPlugin(pluginId);
-
+    for (const QString &id : remove)
+        stopPlugin(id);
     scheduleSync();
+}
+
+QString PluginManager::platformSuffix() const
+{
+#if defined(Q_OS_WIN)
+    return QStringLiteral("exe");
+#else
+    return QStringLiteral("blkt-plugin");
+#endif
+}
+
+bool PluginManager::isAllowedPluginFile(const QFileInfo &file) const
+{
+    if (!file.exists() || !file.isFile() || file.isSymLink()
+        || file.suffix().compare(platformSuffix(), Qt::CaseInsensitive) != 0)
+        return false;
+
+#if !defined(Q_OS_WIN)
+    if (!file.isExecutable())
+        return false;
+#endif
+
+    const QString root = QDir::cleanPath(m_directory.canonicalPath()) + QDir::separator();
+    const QString path = QDir::cleanPath(file.canonicalFilePath());
+    return !root.isEmpty() && path.startsWith(root, Qt::CaseSensitive);
 }
 
 bool PluginManager::hasTrustedDigest(const QFileInfo &file) const
 {
     const auto expected = m_trustedHashes.constFind(file.fileName());
-    if (expected == m_trustedHashes.cend())
-        return false;
-
-    constexpr qint64 MaxPluginBytes = 256LL * 1024LL * 1024LL;
-    if (file.size() <= 0 || file.size() > MaxPluginBytes)
+    if (expected == m_trustedHashes.cend() || file.size() <= 0
+        || file.size() > MaxPluginBytes)
         return false;
 
     QFile input(file.canonicalFilePath());
@@ -157,248 +215,312 @@ bool PluginManager::hasTrustedDigest(const QFileInfo &file) const
     QCryptographicHash hash(QCryptographicHash::Sha256);
     if (!hash.addData(&input))
         return false;
-
     return hash.result().toHex() == expected.value();
 }
 
 void PluginManager::scheduleSync()
 {
-    if (m_running)
+    if (m_running && m_directory.exists())
         m_debounce.start();
-}
-
-QString PluginManager::platformSuffix() const
-{
-#if defined(Q_OS_WIN)
-    return QStringLiteral("dll");
-#elif defined(Q_OS_MACOS)
-    return QStringLiteral("dylib");
-#else
-    return QStringLiteral("so");
-#endif
-}
-
-bool PluginManager::isTrustedPluginPath(const QFileInfo &file) const
-{
-    if (!file.exists() || !file.isFile() || file.isSymLink())
-        return false;
-
-    const QString root = QDir::cleanPath(m_directory.canonicalPath()) + QDir::separator();
-    const QString path = QDir::cleanPath(file.canonicalFilePath());
-    return !root.isEmpty() && path.startsWith(root, Qt::CaseSensitive)
-           && file.suffix().compare(platformSuffix(), Qt::CaseInsensitive) == 0;
 }
 
 void PluginManager::syncDirectory()
 {
-    if (!m_running)
+    if (!m_running || !m_directory.exists())
         return;
 
     QHash<QString, QFileInfo> candidates;
-    const QFileInfoList files = m_directory.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
+    const QFileInfoList files =
+        m_directory.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
     for (const QFileInfo &file : files) {
-        if (!isTrustedPluginPath(file) || !hasTrustedDigest(file))
+        if (!isAllowedPluginFile(file) || !hasTrustedDigest(file))
             continue;
-
         candidates.insert(file.canonicalFilePath(), file);
         if (!m_watcher.files().contains(file.absoluteFilePath()))
             m_watcher.addPath(file.absoluteFilePath());
     }
 
-    QStringList toRemove;
+    QStringList stopIds;
     for (auto it = m_plugins.cbegin(); it != m_plugins.cend(); ++it) {
-        const Entry *entry = it.value().data();
+        Entry *entry = it.value();
         if (!entry || !candidates.contains(entry->canonicalPath)) {
-            toRemove.append(it.key());
+            stopIds.append(it.key());
             continue;
         }
-
         const QFileInfo current = candidates.value(entry->canonicalPath);
-        if (current.lastModified().toMSecsSinceEpoch() != entry->modifiedMs
-            || current.size() != entry->fileSize)
-            toRemove.append(it.key());
+        if (current.size() != QFileInfo(entry->canonicalPath).size()
+            || !hasTrustedDigest(current))
+            stopIds.append(it.key());
     }
+    for (const QString &id : stopIds)
+        stopPlugin(id);
 
-    for (const QString &id : toRemove)
-        unloadPlugin(id);
-
-    QSet<QString> loadedPaths;
-    for (auto it = m_plugins.cbegin(); it != m_plugins.cend(); ++it)
-        loadedPaths.insert(it.value()->canonicalPath);
+    QSet<QString> runningPaths;
+    for (Entry *entry : m_plugins)
+        if (entry)
+            runningPaths.insert(entry->canonicalPath);
 
     for (auto it = candidates.cbegin(); it != candidates.cend(); ++it) {
-        if (!loadedPaths.contains(it.key()))
-            loadPlugin(it.value());
+        if (!runningPaths.contains(it.key()))
+            launchPlugin(it.value());
     }
 }
 
-bool PluginManager::loadPlugin(const QFileInfo &file)
+bool PluginManager::launchPlugin(const QFileInfo &file)
 {
-    if (!m_running || !isTrustedPluginPath(file) || !hasTrustedDigest(file)) {
-        emit m_core->logMessage(QStringLiteral("Plugin rejected: missing or mismatched trusted SHA-256"));
-        return false;
-    }
-
-    const auto expected = m_trustedHashes.constFind(file.fileName());
-    if (expected == m_trustedHashes.cend())
+    if (!m_running || !isAllowedPluginFile(file) || !hasTrustedDigest(file))
         return false;
 
-    auto entry = QSharedPointer<Entry>::create();
-    entry->stagingDirectory = std::make_unique<QTemporaryDir>();
-    if (!entry->stagingDirectory->isValid()) {
-        emit m_core->logMessage(QStringLiteral("Plugin rejected: secure staging directory unavailable"));
+    QString id = file.fileName();
+    const QString suffix = QLatin1Char('.') + platformSuffix();
+    if (id.endsWith(suffix, Qt::CaseInsensitive))
+        id.chop(suffix.size());
+    id = normalizedId(id);
+    if (id.isEmpty() || m_plugins.contains(id))
         return false;
-    }
 
-    // Copy first, hash the exact staged bytes, then load only the private staged copy.
-    // This closes the source-file replacement window between verification and dlopen/LoadLibrary.
-    QFile source(file.canonicalFilePath());
-    const QString stagedPath = entry->stagingDirectory->filePath(file.fileName());
-    QFile staged(stagedPath);
-    if (!source.open(QIODevice::ReadOnly)
-        || !staged.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
-        emit m_core->logMessage(QStringLiteral("Plugin rejected: cannot stage binary"));
-        return false;
-    }
-
-    QCryptographicHash stagedHash(QCryptographicHash::Sha256);
-    qint64 copiedBytes = 0;
-    constexpr qint64 MaxPluginBytes = 256LL * 1024LL * 1024LL;
-    while (!source.atEnd()) {
-        const QByteArray chunk = source.read(1024 * 1024);
-        if (chunk.isEmpty()) {
-            if (source.error() != QFileDevice::NoError) {
-                emit m_core->logMessage(QStringLiteral("Plugin rejected: source read failed"));
-                return false;
-            }
-            break;
-        }
-
-        copiedBytes += chunk.size();
-        if (copiedBytes > MaxPluginBytes || staged.write(chunk) != chunk.size()) {
-            emit m_core->logMessage(QStringLiteral("Plugin rejected: invalid or oversized binary"));
-            return false;
-        }
-        stagedHash.addData(chunk);
-    }
-
-    if (!staged.flush() || stagedHash.result().toHex() != expected.value()) {
-        emit m_core->logMessage(QStringLiteral("Plugin rejected: staged SHA-256 mismatch"));
-        return false;
-    }
-    staged.close();
-    source.close();
-
-    entry->loader = std::make_unique<QPluginLoader>(stagedPath);
-    entry->loader->setLoadHints(QLibrary::LoadHints{});
-
-    QObject *instance = entry->loader->instance();
-    if (!instance) {
-        emit m_core->logMessage(Guard::redact(
-            QStringLiteral("Plugin load failed: %1").arg(entry->loader->errorString())));
-        return false;
-    }
-
-    IPlugin *plugin = qobject_cast<IPlugin *>(instance);
-    if (!plugin) {
-        entry->loader->unload();
-        return false;
-    }
-
-    QString id;
-    try {
-        id = Guard::cleanText(plugin->id(), 128);
-    } catch (...) {
-        entry->loader->unload();
-        emit m_core->logMessage(QStringLiteral("Plugin rejected: id() raised an exception"));
-        return false;
-    }
-
-    static const QRegularExpression idPattern(
-        QStringLiteral("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"));
-    if (!idPattern.match(id).hasMatch() || m_plugins.contains(id)) {
-        entry->loader->unload();
-        return false;
-    }
-
-    entry->plugin = plugin;
+    auto *entry = new Entry;
+    entry->id = id;
     entry->canonicalPath = file.canonicalFilePath();
-    entry->modifiedMs = file.lastModified().toMSecsSinceEpoch();
-    entry->fileSize = file.size();
-    entry->permissions = m_grants.value(id, Permissions(Permission::None));
-    entry->active = true;
-    entry->context.pluginId = id;
+    entry->permissions = m_grants.value(id, 0);
+    entry->process = new QProcess(this);
+    entry->readyTimer = new QTimer(entry->process);
+    entry->readyTimer->setSingleShot(true);
+    entry->stopTimer = new QTimer(entry->process);
+    entry->stopTimer->setSingleShot(true);
 
-    const QString pluginId = id;
-    const QWeakPointer<int> lifetime = m_lifetime;
-    entry->context.sendMessage = [this, pluginId, lifetime](
-                                     const QString &roomId, const QString &text) {
-        const auto alive = lifetime.toStrongRef();
-        if (!alive)
-            return false;
-        const auto it = m_plugins.constFind(pluginId);
-        if (!m_running || it == m_plugins.cend() || !it.value()->active
-            || !it.value()->permissions.testFlag(Permission::SendMessage))
-            return false;
-        return m_core && m_core->sendMessage(roomId, text);
-    };
-    entry->context.giftInfo = [this, pluginId, lifetime](
-                                  quint64 giftId) -> std::optional<GiftInfo> {
-        const auto alive = lifetime.toStrongRef();
-        if (!alive)
-            return std::nullopt;
-        const auto it = m_plugins.constFind(pluginId);
-        if (!m_running || it == m_plugins.cend() || !it.value()->active
-            || !it.value()->permissions.testFlag(Permission::GiftInfo))
-            return std::nullopt;
-        return m_core ? m_core->giftInfo(giftId) : std::nullopt;
-    };
-
+    QProcess *process = entry->process;
     m_plugins.insert(id, entry);
-    try {
-        plugin->onLoad(entry->context);
-    } catch (...) {
-        unloadPlugin(id);
-        return false;
-    }
 
-    emit m_core->logMessage(QStringLiteral("Plugin loaded: %1").arg(id));
+    connect(process, &QProcess::started, this, [this, entry] {
+        QJsonObject init;
+        init.insert(QStringLiteral("type"), QStringLiteral("initialize"));
+        init.insert(QStringLiteral("protocol"), 1);
+        init.insert(QStringLiteral("plugin_id"), entry->id);
+        init.insert(QStringLiteral("permissions"), permissionsFor(entry->permissions));
+        if (!sendPacket(entry, init))
+            stopPlugin(entry->id);
+    });
+    connect(process, &QProcess::readyReadStandardOutput, this,
+            [this, id] { consumeStdout(id); });
+    connect(process, &QProcess::readyReadStandardError, this, [this, id, process] {
+        const QByteArray ignored = process->readAllStandardError();
+        if (!ignored.isEmpty() && m_core)
+            emit m_core->logMessage(QStringLiteral("Plugin %1 wrote to stderr (content suppressed)").arg(id));
+    });
+    connect(entry->readyTimer, &QTimer::timeout, this, [this, id] {
+        Entry *current = m_plugins.value(id, nullptr);
+        if (current && !current->ready) {
+            if (m_core)
+                emit m_core->logMessage(QStringLiteral("Plugin startup handshake timed out: %1").arg(id));
+            stopPlugin(id);
+        }
+    });
+    connect(entry->stopTimer, &QTimer::timeout, process, &QProcess::kill);
+    connect(process,
+            qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
+            this, [this, id, entry](int, QProcess::ExitStatus) {
+        if (m_plugins.value(id, nullptr) == entry)
+            m_plugins.remove(id);
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("Plugin process exited: %1").arg(id));
+        entry->process->deleteLater();
+        delete entry;
+    });
+    connect(process, &QProcess::errorOccurred, this,
+            [this, id](QProcess::ProcessError error) {
+        if (error == QProcess::FailedToStart && m_core)
+            emit m_core->logMessage(QStringLiteral("Plugin process could not start: %1").arg(id));
+    });
+
+    process->setProcessChannelMode(QProcess::SeparateChannels);
+    process->start(file.canonicalFilePath(),
+                   {QStringLiteral("--blkt-plugin-worker"),
+                    QStringLiteral("--blkt-protocol=1")});
+    if (!process->waitForStarted(0)) {
+        // The asynchronous error handler owns final cleanup.
+        if (process->state() == QProcess::NotRunning) {
+            m_plugins.remove(id);
+            process->deleteLater();
+            delete entry;
+            return false;
+        }
+    }
+    entry->readyTimer->start(ReadyTimeoutMs);
     return true;
 }
 
-void PluginManager::unloadPlugin(const QString &pluginId)
+bool PluginManager::sendPacket(Entry *entry, const QJsonObject &packet)
 {
-    auto it = m_plugins.find(pluginId);
-    if (it == m_plugins.end())
-        return;
+    if (!entry || !entry->process || entry->process->state() == QProcess::NotRunning)
+        return false;
 
-    const QSharedPointer<Entry> entry = it.value();
-    entry->active = false;
-    entry->context.sendMessage = {};
-    entry->context.giftInfo = {};
-
-    if (entry->plugin) {
-        try {
-            entry->plugin->onUnload();
-        } catch (...) {
-            // A plugin must not prevent host cleanup.
-        }
-        entry->plugin = nullptr;
-    }
-
-    if (entry->loader && entry->loader->isLoaded())
-        entry->loader->unload();
-
-    m_plugins.erase(it);
-    if (m_core)
-        emit m_core->logMessage(QStringLiteral("Plugin unloaded: %1").arg(pluginId));
+    const QByteArray bytes = QJsonDocument(packet).toJson(QJsonDocument::Compact) + '\n';
+    if (bytes.size() > MaxPacketBytes
+        || entry->process->bytesToWrite() + bytes.size() > 256 * 1024)
+        return false;
+    return entry->process->write(bytes) == bytes.size();
 }
 
-void PluginManager::unloadAll()
+void PluginManager::consumeStdout(const QString &pluginId)
+{
+    Entry *entry = m_plugins.value(pluginId, nullptr);
+    if (!entry || !entry->process)
+        return;
+
+    entry->inputBuffer.append(entry->process->readAllStandardOutput());
+    if (entry->inputBuffer.size() > MaxPacketBytes
+        && !entry->inputBuffer.contains('\n')) {
+        stopPlugin(pluginId);
+        return;
+    }
+
+    while (true) {
+        const qsizetype newline = entry->inputBuffer.indexOf('\n');
+        if (newline < 0)
+            break;
+        if (newline > MaxPacketBytes) {
+            stopPlugin(pluginId);
+            return;
+        }
+
+        const QByteArray line = entry->inputBuffer.left(newline).trimmed();
+        entry->inputBuffer.remove(0, newline + 1);
+        if (line.isEmpty())
+            continue;
+
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(line, &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            stopPlugin(pluginId);
+            return;
+        }
+        handlePacket(pluginId, document.object());
+        if (!m_plugins.contains(pluginId))
+            return;
+    }
+}
+
+void PluginManager::handlePacket(const QString &pluginId, const QJsonObject &packet)
+{
+    Entry *entry = m_plugins.value(pluginId, nullptr);
+    if (!entry)
+        return;
+
+    const QString type = packet.value(QStringLiteral("type")).toString();
+    if (!entry->ready) {
+        const bool valid = type == QStringLiteral("ready")
+            && packet.value(QStringLiteral("protocol")).toInt(-1) == 1
+            && packet.value(QStringLiteral("plugin_id")).toString() == pluginId;
+        if (!valid) {
+            stopPlugin(pluginId);
+            return;
+        }
+        entry->ready = true;
+        entry->readyTimer->stop();
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("Plugin worker ready: %1").arg(pluginId));
+        return;
+    }
+
+    if (type == QStringLiteral("request"))
+        handleRequest(entry, packet);
+    else if (type == QStringLiteral("log")) {
+        // Plugin log content is intentionally not forwarded: it may contain secrets.
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("Plugin %1 emitted a log event").arg(pluginId));
+    } else {
+        stopPlugin(pluginId);
+    }
+}
+
+void PluginManager::handleRequest(Entry *entry, const QJsonObject &packet)
+{
+    if (!entry || !entry->ready)
+        return;
+
+    const QString requestId = packet.value(QStringLiteral("id")).toString();
+    const QString operation = packet.value(QStringLiteral("operation")).toString();
+    const QJsonObject payload = packet.value(QStringLiteral("payload")).toObject();
+    if (requestId.isEmpty() || requestId.size() > 128)
+        return;
+
+    QJsonObject response;
+    response.insert(QStringLiteral("type"), QStringLiteral("response"));
+    response.insert(QStringLiteral("id"), requestId);
+    bool ok = false;
+
+    if (operation == QStringLiteral("send_message")
+        && hasPermission(entry->permissions, Permission::SendMessage)) {
+        const QString roomId = payload.value(QStringLiteral("room_id")).toString();
+        const QString text = payload.value(QStringLiteral("text")).toString();
+        ok = m_core && m_core->sendMessage(roomId, text);
+    } else if (operation == QStringLiteral("gift_info")
+               && hasPermission(entry->permissions, Permission::GiftInfo)) {
+        bool idOk = false;
+        const quint64 giftId = payload.value(QStringLiteral("gift_id")).toString().toULongLong(&idOk);
+        if (idOk && m_core) {
+            const auto info = m_core->giftInfo(giftId);
+            if (info) {
+                QJsonObject gift;
+                gift.insert(QStringLiteral("id"), QString::number(info->id));
+                gift.insert(QStringLiteral("name"), info->name);
+                gift.insert(QStringLiteral("price"), QString::number(info->price));
+                gift.insert(QStringLiteral("coin_type"), info->coinType);
+                response.insert(QStringLiteral("result"), gift);
+                ok = true;
+            }
+        }
+    }
+
+    response.insert(QStringLiteral("ok"), ok);
+    sendPacket(entry, response);
+}
+
+QStringList PluginManager::permissionsFor(Permissions permissions) const
+{
+    QStringList result;
+    if (hasPermission(permissions, Permission::ReceiveMessage))
+        result.append(QStringLiteral("receive_message"));
+    if (hasPermission(permissions, Permission::SendMessage))
+        result.append(QStringLiteral("send_message"));
+    if (hasPermission(permissions, Permission::ReceiveGift))
+        result.append(QStringLiteral("receive_gift"));
+    if (hasPermission(permissions, Permission::GiftInfo))
+        result.append(QStringLiteral("gift_info"));
+    return result;
+}
+
+void PluginManager::stopPlugin(const QString &pluginId)
+{
+    Entry *entry = m_plugins.value(pluginId, nullptr);
+    if (!entry || entry->stopping)
+        return;
+
+    entry->stopping = true;
+    entry->ready = false;
+    if (entry->readyTimer)
+        entry->readyTimer->stop();
+
+    if (!entry->process || entry->process->state() == QProcess::NotRunning) {
+        if (entry->process)
+            entry->process->deleteLater();
+        m_plugins.remove(pluginId);
+        delete entry;
+        return;
+    }
+
+    QJsonObject shutdown;
+    shutdown.insert(QStringLiteral("type"), QStringLiteral("shutdown"));
+    sendPacket(entry, shutdown);
+    entry->stopTimer->start(GracefulStopMs);
+}
+
+void PluginManager::stopAll()
 {
     const QStringList ids = m_plugins.keys();
     for (const QString &id : ids)
-        unloadPlugin(id);
+        stopPlugin(id);
 }
 
 } // namespace blkt
