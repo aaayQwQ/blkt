@@ -204,6 +204,8 @@ void Core::consumeReply(QNetworkReply *reply, quint64 generation)
 
 std::optional<GiftInfo> Core::giftInfo(quint64 giftId) const
 {
+    if (!m_loggedIn || !m_roomConnected)
+        return std::nullopt;
     const auto it = m_gifts.constFind(giftId);
     if (it == m_gifts.cend())
         return std::nullopt;
