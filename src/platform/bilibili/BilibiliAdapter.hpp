@@ -47,6 +47,8 @@ private:
     void scheduleReconnect();
     void handleDanmuInfo(QNetworkReply *reply);
     void requestGiftCatalog();
+    void handleRoomDetails(QNetworkReply *reply);
+    void fetchGiftCatalog(int areaId, int parentAreaId);
     void handleGiftCatalog(QNetworkReply *reply);
     void sendAuthPacket();
     void sendHeartbeat();
@@ -59,11 +61,13 @@ private:
     QPointer<QNetworkReply> m_reply;
     QPointer<QNetworkReply> m_roomInfoReply;
     QPointer<QNetworkReply> m_giftCatalogReply;
+    QPointer<QNetworkReply> m_roomDetailsReply;
     QWebSocket m_webSocket;
     QTimer m_heartbeat;
     QTimer m_authTimeout;
     QTimer m_reconnectTimer;
     QTimer m_giftTimeout;
+    QTimer m_roomDetailsTimeout;
     QTimer m_timeout;
     QByteArray m_cookie;
     QString m_csrf;
