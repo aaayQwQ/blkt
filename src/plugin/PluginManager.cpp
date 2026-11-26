@@ -250,8 +250,7 @@ void PluginManager::syncDirectory()
             continue;
         }
         const QFileInfo current = candidates.value(entry->canonicalPath);
-        if (current.size() != QFileInfo(entry->canonicalPath).size()
-            || !hasTrustedDigest(current))
+        if (!hasTrustedDigest(current))
             stopIds.append(it.key());
     }
     for (const QString &id : stopIds)
@@ -288,8 +287,6 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     entry->process = new QProcess(this);
     entry->readyTimer = new QTimer(entry->process);
     entry->readyTimer->setSingleShot(true);
-    entry->stopTimer = new QTimer(entry->process);
-    entry->stopTimer->setSingleShot(true);
 
     QProcess *process = entry->process;
     m_plugins.insert(id, entry);
@@ -318,7 +315,6 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
             stopPlugin(id);
         }
     });
-    connect(entry->stopTimer, &QTimer::timeout, process, &QProcess::kill);
     connect(process,
             qOverload<int, QProcess::ExitStatus>(&QProcess::finished),
             this, [this, id, entry](int, QProcess::ExitStatus) {
