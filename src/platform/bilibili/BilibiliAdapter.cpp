@@ -498,7 +498,7 @@ void BilibiliAdapter::requestGiftCatalog()
     QUrl url(QStringLiteral(
         "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList"));
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("platform"), QStringLiteral("pc"));
+    query.addQueryItem(QStringLiteral("platform"), QStringLiteral("web"));
     query.addQueryItem(QStringLiteral("room_id"), m_roomId);
     url.setQuery(query);
 
