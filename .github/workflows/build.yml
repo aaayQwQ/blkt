@@ -21,12 +21,15 @@ jobs:
           - name: Windows x64
             os: windows-2022
             qt_arch: win64_msvc2022_64
+            qt_host: windows
           - name: Linux x64
             os: ubuntu-24.04
-            qt_arch: gcc_64
+            qt_arch: ''
+            qt_host: ''
           - name: macOS
             os: macos-14
             qt_arch: clang_64
+            qt_host: mac
 
     runs-on: ${{ matrix.os }}
 
@@ -34,11 +37,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Qt
+      - name: Install Qt on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build qt6-base-dev qt6-websockets-dev
+
+      - name: Install Qt on Windows and macOS
+        if: runner.os != 'Linux'
         uses: jurplel/install-qt-action@v4
         with:
           version: 6.8.3
-          host: ${{ runner.os == 'Windows' && 'windows' || runner.os == 'macOS' && 'mac' || 'linux' }}
+          host: ${{ matrix.qt_host }}
           target: desktop
           arch: ${{ matrix.qt_arch }}
           modules: qtwebsockets
