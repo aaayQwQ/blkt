@@ -149,11 +149,14 @@ void PluginManager::setGrantedPermissions(const QString &pluginId, Permissions p
     Entry *entry = m_plugins.value(id, nullptr);
     if (entry) {
         entry->permissions = permissions;
-        QJsonObject packet;
-        packet.insert(QStringLiteral("type"), QStringLiteral("permissions"));
-        packet.insert(QStringLiteral("permissions"), QJsonArray::fromStringList(permissionsFor(permissions)));
-        if (!sendPacket(entry, packet))
-            stopPlugin(entry->id);
+        if (entry->ready) {
+            QJsonObject packet;
+            packet.insert(QStringLiteral("type"), QStringLiteral("permissions"));
+            packet.insert(QStringLiteral("permissions"),
+                          QJsonArray::fromStringList(permissionsFor(permissions)));
+            if (!sendPacket(entry, packet))
+                stopPlugin(entry->id);
+        }
     }
 }
 
