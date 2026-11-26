@@ -91,7 +91,8 @@ bool Core::isLoggedIn() const
 
 bool Core::sendMessage(const QString &roomId, const QString &text)
 {
-    if (!m_loggedIn || m_activeReplies.size() >= MaxActiveRequests\n        || !Guard::validRoomId(roomId))
+    if (!m_loggedIn || m_activeReplies.size() >= MaxActiveRequests
+        || !Guard::validRoomId(roomId))
         return false;
 
     QString safeText = Guard::cleanText(text, 500);
