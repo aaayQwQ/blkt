@@ -4,6 +4,7 @@
 #include <QFlags>
 #include <QString>
 
+// Shared value types for IPC serialization; plugins are never loaded into the host process.
 namespace blkt {
 
 enum class Permission : quint32 {
