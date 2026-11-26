@@ -5,6 +5,7 @@
 #include <QNetworkAccessManager>
 #include <QWebSocket>
 #include <QPointer>
+#include <QMap>
 #include <QTimer>
 
 class QNetworkReply;
@@ -39,6 +40,8 @@ private:
     void finishAuthentication(QNetworkReply *reply);
     void clearCredentials();
     void requestDanmuInfo();
+    QString buildWbiMixinKey(const QJsonObject &wbiImage) const;
+    QMap<QString, QString> signWbiParameters(QMap<QString, QString> parameters) const;
     void scheduleReconnect();
     void handleDanmuInfo(QNetworkReply *reply);
     void sendAuthPacket();
@@ -62,6 +65,8 @@ private:
     quint64 m_accountId = 0;
     QString m_roomId;
     QString m_danmuToken;
+    QString m_wbiMixinKey;
+    QString m_buvid3;
     bool m_roomConnected = false;
     bool m_roomRequested = false;
     int m_reconnectAttempt = 0;
