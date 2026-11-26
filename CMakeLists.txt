@@ -62,3 +62,30 @@ add_custom_command(TARGET blkt POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:blkt>/plugins"
 )
+
+# This worker is a separate executable, never linked into the BLKT host.
+add_executable(blkt_echo_plugin
+    src/plugin/example/echo_worker.cpp
+)
+target_link_libraries(blkt_echo_plugin PRIVATE Qt6::Core)
+
+if(WIN32)
+    set_target_properties(blkt_echo_plugin PROPERTIES
+        OUTPUT_NAME "echo"
+        SUFFIX ".exe"
+    )
+else()
+    set_target_properties(blkt_echo_plugin PROPERTIES
+        OUTPUT_NAME "echo"
+        SUFFIX ".blkt-plugin"
+    )
+endif()
+
+add_custom_command(TARGET blkt_echo_plugin POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:blkt>/plugins"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:blkt_echo_plugin>"
+            "$<TARGET_FILE_DIR:blkt>/plugins/$<TARGET_FILE_NAME:blkt_echo_plugin>"
+)
+add_dependencies(blkt blkt_echo_plugin)
