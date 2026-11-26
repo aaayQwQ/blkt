@@ -94,7 +94,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Qt
-        run: brew install qtbase qtwebsockets
+        run: brew install qtbase qtwebsockets qttools
 
       - name: Configure
         run: |
