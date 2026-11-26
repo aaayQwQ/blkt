@@ -927,10 +927,12 @@ void BilibiliAdapter::sendAuthPacket()
     }
 
     QJsonObject auth;
-    // Bind the live message-stream session to the same authenticated
-    // account whose Cookie was used for getDanmuInfo. uid=0 explicitly means
-    // guest mode and can hide the logged-in identity in room-side user data.
-    auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
+    // Bilibili's current web live gateway accepts the danmu token in
+    // guest-mode WebSocket sessions (uid=0). Supplying the account MID here
+    // caused the gateway to close the socket before operation 8 was returned.
+    // Keep the authenticated Cookie for REST requests, but do not claim a
+    // viewer-entry session that this WebSocket-only client has not established.
+    auth.insert(QStringLiteral("uid"), 0);
     auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
     // Protocol v2 keeps the decoder dependency-free (zlib via Qt). Protocol v3
     // requires Brotli, which is deliberately not introduced as a new runtime DLL.
