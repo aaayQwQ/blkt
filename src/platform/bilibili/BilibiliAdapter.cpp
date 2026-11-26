@@ -565,6 +565,11 @@ bool BilibiliAdapter::isRoomConnected() const
     return m_roomConnected;
 }
 
+bool BilibiliAdapter::isRoomRequested() const
+{
+    return m_roomRequested;
+}
+
 QString BilibiliAdapter::accountName() const
 {
     return m_accountName;
