@@ -935,7 +935,7 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
         event.count = static_cast<quint32>(count);
         event.totalCoin = totalCoinOk ? totalCoin : 0;
         event.coinType = data.value(QStringLiteral("coin_type")).toString();
-        event.timestamp = QDateTime::currentSecsSinceEpoch();
+        event.timestamp = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
         m_core->ingestGift(event);
     }
 }
