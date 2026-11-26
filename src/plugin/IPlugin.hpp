@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QtGlobal>
+#include <QFlags>
 #include <QString>
 
 namespace blkt {
