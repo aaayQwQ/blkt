@@ -45,7 +45,7 @@ private:
         QString canonicalPath;
         QByteArray digest;
         QByteArray inputBuffer;
-        Permissions permissions = 0;
+        Permissions permissions{};
         bool ready = false;
         bool stopping = false;
         qint64 requestWindowStartMs = 0;
