@@ -52,7 +52,7 @@ jobs:
           target: desktop
           arch: ${{ matrix.qt_arch }}
           modules: qtwebsockets
-          archives: qtdeclarative
+          archives: qtbase qtdeclarative
           cache: true
 
       - name: Configure
