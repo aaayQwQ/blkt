@@ -93,7 +93,7 @@ MainWindow::MainWindow(Core *core, BilibiliAdapter *bilibili,
     pluginLayout->addLayout(pluginButtonRow);
 
     m_pluginStatusLabel = new QLabel(
-        QStringLiteral("Plugins are separate processes. Trust only code from sources you trust."),
+        QStringLiteral("Plugins run as separate processes, but are not yet OS-sandboxed. Permissions gate BLKT API calls only; trusted plugin code may still access files and networks available to your OS user. Do not load untrusted code."),
         pluginGroup);
     m_pluginStatusLabel->setWordWrap(true);
     pluginLayout->addWidget(m_pluginStatusLabel);
