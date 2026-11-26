@@ -128,6 +128,15 @@ bool PluginManager::trustPlugin(const QString &fileName, const QByteArray &sha25
 void PluginManager::revokePluginTrust(const QString &fileName)
 {
     m_trustedHashes.remove(fileName);
+
+    QStringList toUnload;
+    for (auto it = m_plugins.cbegin(); it != m_plugins.cend(); ++it) {
+        if (QFileInfo(it.value()->canonicalPath).fileName() == fileName)
+            toUnload.append(it.key());
+    }
+    for (const QString &pluginId : toUnload)
+        unloadPlugin(pluginId);
+
     scheduleSync();
 }
 
