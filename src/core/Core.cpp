@@ -13,7 +13,7 @@
 namespace blkt {
 
 Core::Core(QObject *parent)
-    : QObject(parent), m_network(this)
+    : QObject(parent), m_network()
 {
     qRegisterMetaType<blkt::MessageEvent>();
     qRegisterMetaType<blkt::GiftEvent>();
