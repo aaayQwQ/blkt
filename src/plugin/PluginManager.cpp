@@ -387,7 +387,7 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     process->setWorkingDirectory(m_directory.absolutePath());
     process->start(file.canonicalFilePath(),
                    {QStringLiteral("--blkt-plugin-worker"),
-                    QStringLiteral("--blkt-protocol=1")});
+                    QStringLiteral("--blkt-protocol=%1").arg(PluginProtocol::Version)});
     entry->readyTimer->start(ReadyTimeoutMs);
     return true;
 }
