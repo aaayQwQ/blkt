@@ -8,6 +8,7 @@
 #include <QHash>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QSet>
 
 namespace blkt {
 
@@ -39,9 +40,11 @@ signals:
 
 private:
     void clearSession();
+    void abortActiveRequests();
     void consumeReply(QNetworkReply *reply);
 
     QNetworkAccessManager m_network;
+    QSet<QNetworkReply *> m_activeReplies;
     QByteArray m_cookie;
     QString m_csrf;
     QHash<quint64, GiftInfo> m_gifts;
