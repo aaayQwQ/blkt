@@ -270,7 +270,7 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
     if (result.isError()) {
         emit m_core->logMessage(QStringLiteral("Plugin %1 failed at line %2: %3")
             .arg(id).arg(result.property(QStringLiteral("lineNumber")).toInt())
-            .arg(result.toString().left(256)));
+            .arg(Guard::cleanLogText(result.toString(), 256)));
         delete entry->engine;
         delete entry;
         return false;
