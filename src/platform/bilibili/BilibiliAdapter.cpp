@@ -2,6 +2,7 @@
 #include "../../core/Core.hpp"
 #include "../../core/Guard.hpp"
 
+#include <QDateTime>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -10,12 +11,12 @@
 #include <QRegularExpression>
 #include <QUrl>
 #include <QUrlQuery>
-#include <QtEndian>
 
 namespace blkt {
 namespace {
 
 constexpr quint16 PacketHeaderSize = 16;
+constexpr quint32 MaxDecodedPacketBytes = 4u * 1024u * 1024u;
 constexpr quint16 ProtocolVersionPlain = 1;
 constexpr quint16 ProtocolVersionZlib = 2;
 constexpr quint32 OperationHeartbeat = 2;
@@ -26,30 +27,32 @@ constexpr quint32 OperationAuthReply = 8;
 
 void appendU16(QByteArray &buffer, quint16 value)
 {
-    const quint16 encoded = qToBigEndian(value);
-    buffer.append(reinterpret_cast<const char *>(&encoded), sizeof(encoded));
+    buffer.append(static_cast<char>((value >> 8) & 0xff));
+    buffer.append(static_cast<char>(value & 0xff));
 }
 
 void appendU32(QByteArray &buffer, quint32 value)
 {
-    const quint32 encoded = qToBigEndian(value);
-    buffer.append(reinterpret_cast<const char *>(&encoded), sizeof(encoded));
+    buffer.append(static_cast<char>((value >> 24) & 0xff));
+    buffer.append(static_cast<char>((value >> 16) & 0xff));
+    buffer.append(static_cast<char>((value >> 8) & 0xff));
+    buffer.append(static_cast<char>(value & 0xff));
 }
 
 quint16 readU16(const QByteArray &buffer, qsizetype offset)
 {
-    quint16 value = 0;
-    qFromBigEndian<quint16>(
-        reinterpret_cast<const uchar *>(buffer.constData() + offset), &value);
-    return value;
+    const auto *bytes = reinterpret_cast<const uchar *>(buffer.constData() + offset);
+    return static_cast<quint16>((static_cast<quint16>(bytes[0]) << 8)
+                                | static_cast<quint16>(bytes[1]));
 }
 
 quint32 readU32(const QByteArray &buffer, qsizetype offset)
 {
-    quint32 value = 0;
-    qFromBigEndian<quint32>(
-        reinterpret_cast<const uchar *>(buffer.constData() + offset), &value);
-    return value;
+    const auto *bytes = reinterpret_cast<const uchar *>(buffer.constData() + offset);
+    return (static_cast<quint32>(bytes[0]) << 24)
+           | (static_cast<quint32>(bytes[1]) << 16)
+           | (static_cast<quint32>(bytes[2]) << 8)
+           | static_cast<quint32>(bytes[3]);
 }
 
 QByteArray makePacket(quint32 operation, quint16 version, const QByteArray &payload)
@@ -70,7 +73,7 @@ QByteArray decompressZlib(const QByteArray &compressed)
     // Bilibili's zlib payload omits Qt's qCompress length prefix. Try bounded
     // output capacities and let qUncompress validate the zlib stream.
     for (quint32 capacity = 64 * 1024;
-         capacity <= static_cast<quint32>(BilibiliAdapter::MaxWebSocketPacketBytes);
+         capacity <= MaxDecodedPacketBytes;
          capacity *= 2) {
         QByteArray framed(4, '\0');
         framed[0] = static_cast<char>((capacity >> 24) & 0xff);
@@ -353,7 +356,7 @@ void BilibiliAdapter::sendAuthPacket()
 
     QJsonObject auth;
     auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
-    auth.insert(QStringLiteral("roomid"), m_roomId.toULongLong());
+    auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
     auth.insert(QStringLiteral("protover"), 2);
     auth.insert(QStringLiteral("platform"), QStringLiteral("web"));
     auth.insert(QStringLiteral("type"), 2);
