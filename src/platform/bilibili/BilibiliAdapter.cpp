@@ -116,6 +116,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     m_giftTimeout.setInterval(RequestTimeoutMs);
     m_roomDetailsTimeout.setSingleShot(true);
     m_roomDetailsTimeout.setInterval(RequestTimeoutMs);
+    m_viewerHeartbeatTimer.setSingleShot(true);
 
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         if (m_reply && !m_reply->isFinished())
@@ -136,6 +137,8 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
         if (m_roomDetailsReply && !m_roomDetailsReply->isFinished())
             m_roomDetailsReply->abort();
     });
+    connect(&m_viewerHeartbeatTimer, &QTimer::timeout,
+            this, &BilibiliAdapter::sendViewerHeartbeat);
     connect(&m_giftTimeout, &QTimer::timeout, this, [this] {
         if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
             m_giftCatalogReply->abort();
@@ -448,6 +451,7 @@ void BilibiliAdapter::handleRoomInit(QNetworkReply *reply)
         m_giftCatalogLoaded = false;
     m_roomId = resolvedRoomId;
     m_roomResolved = true;
+    reportRoomEntry();
     // Move the core's room scope to the canonical room ID before the gift
     // catalog request can complete, so a later auth-success transition does
     // not clear a catalog that was just loaded.
@@ -656,6 +660,203 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
             .arg(host).arg(port));
     m_authTimeout.start();
     m_webSocket.open(socketRequest);
+}
+
+void BilibiliAdapter::reportRoomEntry()
+{
+    if (!m_roomRequested || !m_roomResolved || m_roomId.isEmpty()
+        || m_viewerEntryReported || m_viewerEntryReply) {
+        return;
+    }
+
+    const QUrl url(QStringLiteral(
+        "https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction"));
+    QUrlQuery form;
+    form.addQueryItem(QStringLiteral("room_id"), m_roomId);
+    form.addQueryItem(QStringLiteral("platform"), QStringLiteral("pc"));
+    form.addQueryItem(QStringLiteral("csrf"), m_csrf);
+    form.addQueryItem(QStringLiteral("csrf_token"), m_csrf);
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Cookie", m_cookie);
+    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Referer", "https://live.bilibili.com/" + m_roomId);
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
+
+    m_viewerEntryReply = m_network.post(request, form.query(QUrl::FullyEncoded).toUtf8());
+    if (!m_viewerEntryReply) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili viewer entry report could not be created"));
+        return;
+    }
+
+    QNetworkReply *reply = m_viewerEntryReply;
+    reply->setReadBufferSize(MaxResponseBytes);
+    connect(reply, &QIODevice::readyRead, this, [reply] {
+        if (reply->bytesAvailable() > MaxResponseBytes)
+            reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        if (m_viewerEntryReply == reply)
+            handleRoomEntry(reply);
+        else
+            reply->deleteLater();
+    });
+    if (m_core)
+        emit m_core->logMessage(QStringLiteral(
+            "Reporting authenticated viewer entry for room %1").arg(m_roomId));
+}
+
+void BilibiliAdapter::handleRoomEntry(QNetworkReply *reply)
+{
+    if (!reply)
+        return;
+    if (m_viewerEntryReply != reply) {
+        reply->deleteLater();
+        return;
+    }
+
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QByteArray body = reply->read(MaxResponseBytes + 1);
+    const bool transportOk = networkError == QNetworkReply::NoError
+                             && body.size() <= MaxResponseBytes;
+    const QString errorText = Guard::cleanLogText(reply->errorString(), 120);
+    reply->deleteLater();
+    m_viewerEntryReply.clear();
+
+    if (!transportOk) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili viewer entry report transport failure: HTTP %1, error %2 (%3)")
+                .arg(httpStatus).arg(static_cast<int>(networkError)).arg(errorText));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    const QJsonObject root = document.object();
+    const int apiCode = root.value(QStringLiteral("code")).toInt(-1);
+    const QString apiMessage = Guard::cleanLogText(
+        root.value(QStringLiteral("message")).toString(
+            root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message"))), 120);
+    if (parseError.error != QJsonParseError::NoError || apiCode != 0) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili viewer entry report rejected: HTTP %1, API code %2, message '%3'")
+                .arg(httpStatus).arg(apiCode).arg(apiMessage));
+        return;
+    }
+
+    m_viewerEntryReported = true;
+    if (m_core)
+        emit m_core->logMessage(QStringLiteral(
+            "Bilibili authenticated viewer entry report accepted for room %1").arg(m_roomId));
+    sendViewerHeartbeat();
+}
+
+void BilibiliAdapter::sendViewerHeartbeat()
+{
+    if (!m_roomRequested || !m_viewerEntryReported || m_roomId.isEmpty()
+        || m_viewerHeartbeatReply) {
+        return;
+    }
+
+    const QString heartbeat = QStringLiteral("%1|%2|1|0")
+                                  .arg(m_viewerHeartbeatIntervalSeconds)
+                                  .arg(m_roomId);
+    const QByteArray encodedHeartbeat = heartbeat.toUtf8().toBase64();
+    QUrl url(QStringLiteral(
+        "https://live-trace.bilibili.com/xlive/rdata-interface/v1/heartbeat/webHeartBeat"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("hb"), QString::fromLatin1(encodedHeartbeat));
+    query.addQueryItem(QStringLiteral("pf"), QStringLiteral("web"));
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Cookie", m_cookie);
+    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Referer", "https://live.bilibili.com/" + m_roomId);
+
+    m_viewerHeartbeatReply = m_network.get(request);
+    if (!m_viewerHeartbeatReply) {
+        m_viewerHeartbeatTimer.start(60000);
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili viewer heartbeat request could not be created"));
+        return;
+    }
+
+    QNetworkReply *reply = m_viewerHeartbeatReply;
+    reply->setReadBufferSize(MaxResponseBytes);
+    connect(reply, &QIODevice::readyRead, this, [reply] {
+        if (reply->bytesAvailable() > MaxResponseBytes)
+            reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        if (m_viewerHeartbeatReply == reply)
+            handleViewerHeartbeat(reply);
+        else
+            reply->deleteLater();
+    });
+}
+
+void BilibiliAdapter::handleViewerHeartbeat(QNetworkReply *reply)
+{
+    if (!reply)
+        return;
+    if (m_viewerHeartbeatReply != reply) {
+        reply->deleteLater();
+        return;
+    }
+
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QByteArray body = reply->read(MaxResponseBytes + 1);
+    const bool transportOk = networkError == QNetworkReply::NoError
+                             && body.size() <= MaxResponseBytes;
+    const QString errorText = Guard::cleanLogText(reply->errorString(), 120);
+    reply->deleteLater();
+    m_viewerHeartbeatReply.clear();
+
+    if (!m_roomRequested)
+        return;
+
+    if (!transportOk) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili viewer heartbeat transport failure: HTTP %1, error %2 (%3)")
+                .arg(httpStatus).arg(static_cast<int>(networkError)).arg(errorText));
+        m_viewerHeartbeatTimer.start(60000);
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    const QJsonObject root = document.object();
+    const int apiCode = root.value(QStringLiteral("code")).toInt(-1);
+    const QJsonObject data = root.value(QStringLiteral("data")).toObject();
+    const int nextInterval = data.value(QStringLiteral("next_interval")).toInt(60);
+    if (parseError.error != QJsonParseError::NoError || apiCode != 0) {
+        const QString apiMessage = Guard::cleanLogText(
+            root.value(QStringLiteral("message")).toString(
+                root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message"))), 120);
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili viewer heartbeat rejected: HTTP %1, API code %2, message '%3'")
+                .arg(httpStatus).arg(apiCode).arg(apiMessage));
+        m_viewerHeartbeatTimer.start(60000);
+        return;
+    }
+
+    m_viewerHeartbeatIntervalSeconds = qBound(30, nextInterval, 300);
+    m_viewerHeartbeatTimer.start(m_viewerHeartbeatIntervalSeconds * 1000);
+    if (m_core)
+        emit m_core->logMessage(QStringLiteral(
+            "Bilibili viewer heartbeat accepted; next report in %1 seconds")
+            .arg(m_viewerHeartbeatIntervalSeconds));
 }
 
 void BilibiliAdapter::requestGiftCatalog()
@@ -1233,6 +1434,9 @@ void BilibiliAdapter::disconnectRoom()
     if (m_core)
         m_core->setRoomConnection({}, false);
     m_heartbeat.stop();
+    m_viewerHeartbeatTimer.stop();
+    m_viewerEntryReported = false;
+    m_viewerHeartbeatIntervalSeconds = 60;
     m_authTimeout.stop();
     m_timeout.stop();
     m_giftTimeout.stop();
@@ -1241,15 +1445,23 @@ void BilibiliAdapter::disconnectRoom()
     QPointer<QNetworkReply> roomReply = m_roomInfoReply;
     QPointer<QNetworkReply> giftReply = m_giftCatalogReply;
     QPointer<QNetworkReply> detailsReply = m_roomDetailsReply;
+    QPointer<QNetworkReply> viewerEntryReply = m_viewerEntryReply;
+    QPointer<QNetworkReply> viewerHeartbeatReply = m_viewerHeartbeatReply;
     m_roomInfoReply.clear();
     m_giftCatalogReply.clear();
     m_roomDetailsReply.clear();
+    m_viewerEntryReply.clear();
+    m_viewerHeartbeatReply.clear();
     if (roomReply && !roomReply->isFinished())
         roomReply->abort();
     if (giftReply && !giftReply->isFinished())
         giftReply->abort();
     if (detailsReply && !detailsReply->isFinished())
         detailsReply->abort();
+    if (viewerEntryReply && !viewerEntryReply->isFinished())
+        viewerEntryReply->abort();
+    if (viewerHeartbeatReply && !viewerHeartbeatReply->isFinished())
+        viewerHeartbeatReply->abort();
 
     if (m_webSocket.state() != QAbstractSocket::UnconnectedState)
         m_webSocket.close();
