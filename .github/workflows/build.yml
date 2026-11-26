@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - main
-      - portable-single-account-plugin-v1
-      - security-hardening-deploy-bin
+    tags:
+      - "v*"
   pull_request:
   workflow_dispatch:
 
