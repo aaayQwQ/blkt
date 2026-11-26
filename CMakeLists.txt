@@ -14,7 +14,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC OFF)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS
+find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core
     Network
     WebSockets
