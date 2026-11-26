@@ -3,6 +3,7 @@
 #include <QFile>
 #include <QHash>
 #include <QFileInfo>
+#include <QDateTime>
 
 namespace blkt {
 namespace {
@@ -21,11 +22,43 @@ bool safeCookiePart(const QByteArray &value)
     return true;
 }
 
-bool isBilibiliDomain(const QString &domain)
+bool isSharedBilibiliDomain(const QByteArray &field)
 {
-    const QString normalized = domain.trimmed().toLower();
-    return normalized == QStringLiteral("bilibili.com")
-           || normalized.endsWith(QStringLiteral(".bilibili.com"));
+    const QByteArray domain = field.trimmed().toLower();
+    return domain == QByteArrayLiteral("bilibili.com")
+           || domain == QByteArrayLiteral(".bilibili.com");
+}
+
+bool allowedSessionCookie(const QByteArray &name)
+{
+    return name == QByteArrayLiteral("SESSDATA")
+           || name == QByteArrayLiteral("bili_jct")
+           || name == QByteArrayLiteral("buvid3");
+}
+
+QByteArray buildSessionHeader(const QHash<QByteArray, QByteArray> &cookies)
+{
+    if (!cookies.contains(QByteArrayLiteral("SESSDATA"))
+        || !cookies.contains(QByteArrayLiteral("bili_jct")))
+        return {};
+
+    QByteArray header;
+    const QList<QByteArray> names{
+        QByteArrayLiteral("SESSDATA"),
+        QByteArrayLiteral("bili_jct"),
+        QByteArrayLiteral("buvid3")
+    };
+    for (const QByteArray &name : names) {
+        const auto it = cookies.constFind(name);
+        if (it == cookies.cend())
+            continue;
+        if (!header.isEmpty())
+            header.append("; ");
+        header.append(name);
+        header.append('=');
+        header.append(it.value());
+    }
+    return header.size() <= 8192 ? header : QByteArray();
 }
 
 } // namespace
@@ -102,53 +135,52 @@ bool CredentialStore::parseNetscapeCookieFile(const QByteArray &data)
 {
     QHash<QByteArray, QByteArray> cookies;
     const QList<QByteArray> lines = data.split('\n');
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
 
     for (QByteArray line : lines) {
         line = line.trimmed();
         if (line.isEmpty())
             continue;
 
-        bool httpOnly = false;
-        if (line.startsWith("#HttpOnly_")) {
+        if (line.startsWith("#HttpOnly_"))
             line.remove(0, 10);
-            httpOnly = true;
-        } else if (line.startsWith('#')) {
+        else if (line.startsWith('#'))
             continue;
-        }
 
-        Q_UNUSED(httpOnly);
         const QList<QByteArray> fields = line.split('\t');
         if (fields.size() != 7)
             continue;
 
-        const QString domain = QString::fromLatin1(fields.at(0));
+        const QByteArray domain = fields.at(0).trimmed();
+        const QByteArray includeSubdomains = fields.at(1).trimmed().toUpper();
+        const QByteArray path = fields.at(2).trimmed();
+        const QByteArray secure = fields.at(3).trimmed().toUpper();
+        bool expiryOk = false;
+        const qint64 expiry = fields.at(4).trimmed().toLongLong(&expiryOk);
         const QByteArray name = fields.at(5).trimmed();
         const QByteArray value = fields.at(6).trimmed();
-        if (!isBilibiliDomain(domain) || !safeCookiePart(name)
+
+        // Only shared, root-path, HTTPS cookies are safe to reuse across the
+        // fixed Bilibili API hosts used by this client. Host-only and scoped
+        // cookies are deliberately excluded.
+        if (!isSharedBilibiliDomain(domain)
+            || includeSubdomains != QByteArrayLiteral("TRUE")
+            || path != QByteArrayLiteral("/")
+            || secure != QByteArrayLiteral("TRUE")
+            || !expiryOk || (expiry != 0 && expiry <= now)
+            || !allowedSessionCookie(name)
             || !safeCookiePart(value))
             continue;
 
         cookies.insert(name, value);
     }
 
-    if (!cookies.contains("SESSDATA") || !cookies.contains("bili_jct"))
-        return false;
-
-    QByteArray header;
-    for (auto it = cookies.cbegin(); it != cookies.cend(); ++it) {
-        if (!header.isEmpty())
-            header.append("; ");
-        header.append(it.key());
-        header.append('=');
-        header.append(it.value());
-    }
-
-    const QByteArray csrf = cookies.value("bili_jct");
-    if (!safeCookiePart(csrf) || header.size() > 8192)
+    const QByteArray header = buildSessionHeader(cookies);
+    if (header.isEmpty())
         return false;
 
     m_cookie = header;
-    m_csrf = QString::fromLatin1(csrf);
+    m_csrf = QString::fromLatin1(cookies.value(QByteArrayLiteral("bili_jct")));
     return true;
 }
 
@@ -170,28 +202,16 @@ bool CredentialStore::parseCookieHeader(const QByteArray &data)
 
         const QByteArray name = part.left(separator).trimmed();
         const QByteArray value = part.mid(separator + 1).trimmed();
-        if (safeCookiePart(name) && safeCookiePart(value))
+        if (allowedSessionCookie(name) && safeCookiePart(value))
             cookies.insert(name, value);
     }
 
-    if (!cookies.contains("SESSDATA") || !cookies.contains("bili_jct"))
-        return false;
-
-    QByteArray header;
-    for (auto it = cookies.cbegin(); it != cookies.cend(); ++it) {
-        if (!header.isEmpty())
-            header.append("; ");
-        header.append(it.key());
-        header.append('=');
-        header.append(it.value());
-    }
-
-    const QByteArray csrf = cookies.value("bili_jct");
-    if (!safeCookiePart(csrf) || header.size() > 8192)
+    const QByteArray header = buildSessionHeader(cookies);
+    if (header.isEmpty())
         return false;
 
     m_cookie = header;
-    m_csrf = QString::fromLatin1(csrf);
+    m_csrf = QString::fromLatin1(cookies.value(QByteArrayLiteral("bili_jct")));
     return true;
 }
 
