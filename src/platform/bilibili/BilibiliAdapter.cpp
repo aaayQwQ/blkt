@@ -294,7 +294,9 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
 
 bool BilibiliAdapter::connectRoom(const QString &roomId)
 {
-    if (!m_authenticated || m_roomRequested || !Guard::validRoomId(roomId))
+    if (!m_authenticated || m_roomRequested
+        || m_webSocket.state() != QAbstractSocket::UnconnectedState
+        || !Guard::validRoomId(roomId))
         return false;
     if (m_buvid3.isEmpty() || m_wbiMixinKey.isEmpty()) {
         if (m_core)
