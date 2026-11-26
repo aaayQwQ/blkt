@@ -38,6 +38,10 @@ add_executable(blkt
     src/plugin/PluginManager.hpp
 )
 
+set_target_properties(blkt PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+)
+
 target_link_libraries(blkt PRIVATE
     Qt6::Core
     Qt6::Network
@@ -67,6 +71,9 @@ add_custom_command(TARGET blkt POST_BUILD
 add_executable(blkt_echo_plugin
     src/plugin/example/echo_worker.cpp
 )
+set_target_properties(blkt_echo_plugin PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/plugins"
+)
 target_link_libraries(blkt_echo_plugin PRIVATE Qt6::Core)
 
 if(WIN32)
@@ -81,11 +88,4 @@ else()
     )
 endif()
 
-add_custom_command(TARGET blkt_echo_plugin POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory
-            "$<TARGET_FILE_DIR:blkt>/plugins"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:blkt_echo_plugin>"
-            "$<TARGET_FILE_DIR:blkt>/plugins/$<TARGET_FILE_NAME:blkt_echo_plugin>"
-)
-add_dependencies(blkt blkt_echo_plugin)
+
