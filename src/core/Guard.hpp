@@ -11,6 +11,8 @@ public:
     Guard() = delete;
 
     static QString cleanText(const QString &value, qsizetype maxLength);
+    static QString cleanLogText(const QString &value, qsizetype maxLength);
+    static bool validBilibiliWebSocketHost(const QString &host);
     static QString redact(const QString &value);
     static bool validRoomId(const QString &roomId);
     static bool validCookie(const QByteArray &cookie);
