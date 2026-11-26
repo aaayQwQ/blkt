@@ -51,8 +51,19 @@ bool Core::login(const QByteArray &cookie, const QString &csrf)
     return true;
 }
 
+void Core::abortActiveRequests()
+{
+    const auto replies = m_activeReplies;
+    for (QNetworkReply *reply : replies) {
+        if (reply && reply->isRunning())
+            reply->abort();
+    }
+    m_activeReplies.clear();
+}
+
 void Core::clearSession()
 {
+    abortActiveRequests();
     if (!m_cookie.isEmpty())
         m_cookie.fill('\0');
     m_cookie.clear();
@@ -110,6 +121,11 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
     request.setRawHeader("User-Agent", "BLKT/0.1 Qt");
 
     QNetworkReply *reply = m_network.post(request, query.toString(QUrl::FullyEncoded).toUtf8());
+    if (!reply) {
+        emit logMessage(QStringLiteral("Danmaku request could not be created"));
+        return false;
+    }
+    m_activeReplies.insert(reply);
     reply->setReadBufferSize(MaxReplyBytes);
 
     auto *timeout = new QTimer(reply);
@@ -132,6 +148,9 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
 
 void Core::consumeReply(QNetworkReply *reply)
 {
+    if (!reply)
+        return;
+    m_activeReplies.remove(reply);
     const QByteArray body = reply->read(MaxReplyBytes + 1);
     const bool tooLarge = body.size() > MaxReplyBytes;
     const bool transportOk = reply->error() == QNetworkReply::NoError && !tooLarge;
