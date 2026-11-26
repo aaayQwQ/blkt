@@ -157,6 +157,12 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     });
     connect(&m_webSocket, &QWebSocket::binaryMessageReceived,
             this, &BilibiliAdapter::handleBinaryMessage);
+    connect(&m_webSocket, &QWebSocket::textMessageReceived, this, [this](const QString &message) {
+        Q_UNUSED(message);
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili WebSocket received an unexpected text frame"));
+    });
     connect(&m_webSocket, &QWebSocket::disconnected, this, [this] {
         m_heartbeat.stop();
         m_authTimeout.stop();
@@ -921,7 +927,11 @@ void BilibiliAdapter::sendAuthPacket()
     }
 
     QJsonObject auth;
-    auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
+    // The current browser flow authenticates with uid=0. The getDanmuInfo
+    // token is session-bound by Cookie; sending a non-zero UID is optional and
+    // can cause a hard disconnect if the gateway associates the token with a
+    // different identity/session.
+    auth.insert(QStringLiteral("uid"), 0);
     auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
     // Protocol v2 keeps the decoder dependency-free (zlib via Qt). Protocol v3
     // requires Brotli, which is deliberately not introduced as a new runtime DLL.
@@ -964,8 +974,25 @@ void BilibiliAdapter::sendHeartbeat()
 void BilibiliAdapter::handleBinaryMessage(const QByteArray &message)
 {
     if (message.size() > MaxWebSocketPacketBytes) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili WebSocket incoming frame rejected: %1 bytes exceeds limit")
+                .arg(message.size()));
         m_webSocket.abort();
         return;
+    }
+    if (message.size() >= PacketHeaderSize && m_core) {
+        emit m_core->logMessage(QStringLiteral(
+            "Bilibili WebSocket received frame: %1 bytes, protocol %2, operation %3, header %4, packet %5")
+            .arg(message.size())
+            .arg(readU16(message, 6))
+            .arg(readU32(message, 8))
+            .arg(readU16(message, 4))
+            .arg(readU32(message, 0)));
+    } else if (m_core) {
+        emit m_core->logMessage(QStringLiteral(
+            "Bilibili WebSocket received undersized binary frame: %1 bytes")
+            .arg(message.size()));
     }
     handlePacketData(message, 0);
 }
