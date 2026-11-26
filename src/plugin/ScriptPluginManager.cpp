@@ -282,6 +282,11 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
     entry->engine->globalObject().setProperty(
         QStringLiteral("BLKT"), entry->engine->newQObject(entry->api));
 
+    const QJSValue apiTypes = entry->engine->evaluate(
+        QStringLiteral("[typeof BLKT, typeof BLKT.on, typeof BLKT.sendMessage, typeof BLKT.log].join(',')"));
+    emit m_core->logMessage(QStringLiteral("Plugin %1 JavaScript API types: %2")
+                                .arg(id, Guard::cleanLogText(apiTypes.toString(), 128)));
+
     const QJSValue result = runWithScriptDeadline(entry->engine, ScriptDeadlineMs, [&] {
         return entry->engine->evaluate(QStringLiteral("\"use strict\";\n") + sourceText, scriptInfo.fileName());
     });
