@@ -4,6 +4,8 @@
 #include "plugin/PluginManager.hpp"
 
 #include <QCoreApplication>
+#include <QCommandLineOption>
+#include <QCommandLineParser>
 #include <QDir>
 #include <QTextStream>
 
@@ -12,6 +14,17 @@ int main(int argc, char *argv[])
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("BLKT"));
     QCoreApplication::setOrganizationName(QStringLiteral("BLKT"));
+
+    QCommandLineParser parser;
+    parser.setApplicationDescription(QStringLiteral("BLKT portable Bilibili live assistant"));
+    parser.addHelpOption();
+    const QCommandLineOption roomOption(
+        QStringList{QStringLiteral("r"), QStringLiteral("room-id")},
+        QStringLiteral("Connect to a Bilibili live room"),
+        QStringLiteral("room-id"));
+    parser.addOption(roomOption);
+    parser.process(app);
+    const QString roomId = parser.value(roomOption);
 
     // Portable mode: cookie.txt is provisioned by the user before launch.
     // The application reads it only; it never creates or modifies it.
@@ -45,11 +58,16 @@ int main(int argc, char *argv[])
 
     blkt::BilibiliAdapter bilibili(&core);
     QObject::connect(&bilibili, &blkt::BilibiliAdapter::authenticationFinished,
-                     &app, [&app](bool success, const QString &accountName,
+                     &app, [&app, &bilibili, &roomId](bool success, const QString &accountName,
                                   quint64, const QString &reason) {
         QTextStream stream(success ? stdout : stderr);
-        if (success)
+        if (success) {
             stream << "BLKT: authenticated as " << accountName << Qt::endl;
+            if (!roomId.isEmpty() && !bilibili.connectRoom(roomId))
+                stream << "BLKT: could not start live room connection" << Qt::endl;
+            else if (roomId.isEmpty())
+                stream << "BLKT: account ready; specify --room-id to receive live events" << Qt::endl;
+        }
         else
             stream << "BLKT: authentication failed: " << reason << Qt::endl;
         if (!success)
