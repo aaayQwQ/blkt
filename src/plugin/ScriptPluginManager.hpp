@@ -12,6 +12,7 @@
 #include <QSet>
 #include <QStringList>
 #include <QVariantMap>
+#include <QElapsedTimer>
 
 namespace blkt {
 class Core;
@@ -28,7 +29,8 @@ public:
     Q_INVOKABLE QVariantMap giftInfo(const QString &giftId) const;
     Q_INVOKABLE void log(const QString &message);
 
-    void dispatch(const QString &eventName, const QVariantMap &event);
+    bool dispatch(const QString &eventName, const QVariantMap &event,
+                  QElapsedTimer &eventTimer, int &callbacksRemaining);
 
 signals:
     void logMessage(const QString &message);
