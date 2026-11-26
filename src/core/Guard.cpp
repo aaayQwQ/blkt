@@ -54,7 +54,7 @@ bool Guard::validCookie(const QByteArray &cookie)
 
     for (const char ch : cookie) {
         const uchar u = static_cast<uchar>(ch);
-        if (u < 0x21 || u == 0x7f || ch == ';' && u == 0)
+        if (u < 0x20 || u == 0x7f)
             return false;
     }
     return true;
