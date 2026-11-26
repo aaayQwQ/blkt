@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC OFF)
 set(CMAKE_AUTORCC OFF)
+
 find_package(Qt6 6.4 REQUIRED COMPONENTS Core Network WebSockets Qml)
 find_package(Threads REQUIRED)
 
@@ -20,7 +21,11 @@ add_executable(blkt
     src/plugin/ScriptPluginManager.cpp src/plugin/ScriptPluginManager.hpp
 )
 target_link_libraries(blkt PRIVATE Qt6::Core Qt6::Network Qt6::WebSockets Qt6::Qml Threads::Threads)
-set_target_properties(blkt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>" WIN32_EXECUTABLE FALSE)
+set_target_properties(blkt PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+    WIN32_EXECUTABLE FALSE
+)
+
 if(APPLE)
     set_target_properties(blkt PROPERTIES
         MACOSX_BUNDLE TRUE
@@ -30,6 +35,7 @@ if(APPLE)
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     )
 endif()
+
 if(MSVC)
     target_compile_options(blkt PRIVATE /W4 /permissive-)
 else()
@@ -43,12 +49,8 @@ add_test(NAME security_guard_validation COMMAND blkt_guard_smoke)
 
 if(APPLE)
     install(TARGETS blkt BUNDLE DESTINATION .)
-    install(DIRECTORY plugins/ DESTINATION "blkt.app/Contents/MacOS/plugins"
-            FILES_MATCHING PATTERN "manifest.json" PATTERN "*.js")
 else()
     install(TARGETS blkt RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-    install(DIRECTORY plugins/ DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
-            FILES_MATCHING PATTERN "manifest.json" PATTERN "*.js")
 endif()
 
 if(WIN32 OR APPLE)
@@ -65,7 +67,7 @@ qt_deploy_runtime_dependencies(
         file(GENERATE OUTPUT "${deploy_script}" CONTENT "
 include(\"${QT_DEPLOY_SUPPORT}\")
 qt_deploy_runtime_dependencies(
-    EXECUTABLE \"\${QT_DEPLOY_BIN_DIR}/$<TARGET_FILE_NAME:blkt>\"
+    EXECUTABLE \"${QT_DEPLOY_BIN_DIR}/$<TARGET_FILE_NAME:blkt>\"
     GENERATE_QT_CONF
     VERBOSE
 )

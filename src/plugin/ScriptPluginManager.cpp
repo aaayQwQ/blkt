@@ -1,11 +1,9 @@
 #include "ScriptPluginManager.hpp"
+
 #include "../core/Core.hpp"
 #include "../core/Guard.hpp"
-#include <QCryptographicHash>
+
 #include <QFile>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QRegularExpression>
 #include <atomic>
 #include <chrono>
@@ -16,12 +14,15 @@
 
 namespace blkt {
 namespace {
-constexpr qint64 MaxManifestBytes = 64 * 1024;
 constexpr qint64 MaxScriptBytes = 512 * 1024;
+constexpr int MaxPlugins = 16;
+constexpr int MaxHandlersPerEvent = 32;
+constexpr int ScriptDeadlineMs = 250;
+
 bool safePluginId(const QString &id)
 {
-    static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9_-]{1,48}$"));
-    return re.match(id).hasMatch();
+    static const QRegularExpression pattern(QStringLiteral("^[A-Za-z0-9_-]{1,48}$"));
+    return pattern.match(id).hasMatch();
 }
 
 QJSValue runWithScriptDeadline(QJSEngine *engine,
@@ -31,12 +32,12 @@ QJSValue runWithScriptDeadline(QJSEngine *engine,
         return QJSValue();
 
     std::mutex mutex;
-    std::condition_variable finishedCondition;
+    std::condition_variable condition;
     bool finished = false;
     std::thread watchdog([&] {
         std::unique_lock<std::mutex> lock(mutex);
-        if (!finishedCondition.wait_for(lock, std::chrono::milliseconds(250),
-                                        [&] { return finished; })) {
+        if (!condition.wait_for(lock, std::chrono::milliseconds(ScriptDeadlineMs),
+                                [&] { return finished; })) {
             engine->setInterrupted(true);
         }
     });
@@ -46,22 +47,10 @@ QJSValue runWithScriptDeadline(QJSEngine *engine,
         std::lock_guard<std::mutex> lock(mutex);
         finished = true;
     }
-    finishedCondition.notify_one();
+    condition.notify_one();
     watchdog.join();
     engine->setInterrupted(false);
     return result;
-}
-Permissions parsePermissions(const QJsonArray &items)
-{
-    Permissions permissions{};
-    for (const QJsonValue &value : items) {
-        const QString p = value.toString();
-        if (p == QStringLiteral("receive_message")) permissions |= permissionFlag(Permission::ReceiveMessage);
-        else if (p == QStringLiteral("send_message")) permissions |= permissionFlag(Permission::SendMessage);
-        else if (p == QStringLiteral("receive_gift")) permissions |= permissionFlag(Permission::ReceiveGift);
-        else if (p == QStringLiteral("gift_info")) permissions |= permissionFlag(Permission::GiftInfo);
-    }
-    return permissions;
 }
 }
 
@@ -75,30 +64,35 @@ ScriptPluginApi::ScriptPluginApi(Core *core, QJSEngine *engine, QString pluginId
 bool ScriptPluginApi::on(const QString &eventName, const QJSValue &callback)
 {
     const bool permitted =
-        (eventName == QStringLiteral("message") && hasPermission(m_permissions, Permission::ReceiveMessage))
-        || (eventName == QStringLiteral("gift") && hasPermission(m_permissions, Permission::ReceiveGift));
+        (eventName == QStringLiteral("message")
+         && hasPermission(m_permissions, Permission::ReceiveMessage))
+        || (eventName == QStringLiteral("gift")
+            && hasPermission(m_permissions, Permission::ReceiveGift));
     if (m_disabled || !permitted || !callback.isCallable() || !m_engine)
         return false;
+
     auto &handlers = m_handlers[eventName];
-    if (handlers.size() >= 32)
+    if (handlers.size() >= MaxHandlersPerEvent)
         return false;
     handlers.append(callback);
     return true;
 }
 
-bool ScriptPluginApi::sendMessage(const QString &roomId, const QString &text)
+bool ScriptPluginApi::sendMessage(const QString &text)
 {
-    return hasPermission(m_permissions, Permission::SendMessage)
-        && m_core && m_core->sendMessage(roomId, text);
+    if (m_disabled || !hasPermission(m_permissions, Permission::SendMessage)
+        || !m_core || !m_core->isRoomConnected())
+        return false;
+    return m_core->sendMessage(m_core->activeRoomId(), text);
 }
 
 QVariantMap ScriptPluginApi::giftInfo(const QString &giftId) const
 {
-    if (!hasPermission(m_permissions, Permission::GiftInfo) || !m_core)
+    if (m_disabled || !hasPermission(m_permissions, Permission::GiftInfo) || !m_core)
         return {};
     bool ok = false;
     const quint64 id = giftId.toULongLong(&ok);
-    if (!ok)
+    if (!ok || id == 0)
         return {};
     const auto gift = m_core->giftInfo(id);
     if (!gift)
@@ -111,6 +105,8 @@ QVariantMap ScriptPluginApi::giftInfo(const QString &giftId) const
 
 void ScriptPluginApi::log(const QString &message)
 {
+    if (m_disabled)
+        return;
     const QString safe = Guard::cleanText(message, 512);
     if (!safe.isEmpty())
         emit logMessage(QStringLiteral("Plugin %1: %2").arg(m_pluginId, safe));
@@ -144,80 +140,105 @@ void ScriptPluginApi::dispatch(const QString &eventName, const QVariantMap &even
 
 ScriptPluginManager::ScriptPluginManager(Core *core, const QString &directory,
                                          const QStringList &allowedPluginIds,
+                                         const QStringList &sendMessagePluginIds,
                                          QObject *parent)
     : QObject(parent), m_core(core), m_directory(QDir(directory))
 {
     for (const QString &id : allowedPluginIds)
-        if (safePluginId(id)) m_allowedIds.insert(id);
+        if (safePluginId(id))
+            m_allowedIds.insert(id);
+    for (const QString &id : sendMessagePluginIds)
+        if (safePluginId(id) && m_allowedIds.contains(id))
+            m_sendMessageIds.insert(id);
+
     if (m_core) {
         connect(m_core, &Core::messageReceived, this, &ScriptPluginManager::dispatchMessage);
         connect(m_core, &Core::giftReceived, this, &ScriptPluginManager::dispatchGift);
     }
 }
-ScriptPluginManager::~ScriptPluginManager() { stop(); }
+
+ScriptPluginManager::~ScriptPluginManager()
+{
+    stop();
+}
 
 bool ScriptPluginManager::start()
 {
-    if (m_started || !m_core) return false;
+    if (m_started || !m_core)
+        return false;
     m_started = true;
+
     if (!m_directory.exists()) {
-        emit m_core->logMessage(QStringLiteral("Plugin directory missing; script plugins disabled"));
+        emit m_core->logMessage(QStringLiteral(
+            "Community plugin directory missing; no plugins loaded"));
         return true;
     }
+
     const QString canonical = m_directory.canonicalPath();
-    if (canonical.isEmpty()) return false;
+    if (canonical.isEmpty())
+        return false;
     m_directory = QDir(canonical);
-    const QFileInfoList dirs = m_directory.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
-    for (const QFileInfo &dir : dirs) loadPlugin(dir);
-    emit m_core->logMessage(QStringLiteral("Script plugin scan complete: %1 loaded").arg(m_plugins.size()));
+
+    const QFileInfoList scripts = m_directory.entryInfoList(
+        {QStringLiteral("*.js")}, QDir::Files | QDir::NoDotAndDotDot, QDir::Name);
+    for (const QFileInfo &script : scripts)
+        loadPlugin(script);
+
+    emit m_core->logMessage(QStringLiteral("Community script scan complete: %1 loaded")
+                                .arg(m_plugins.size()));
     return true;
 }
 
-bool ScriptPluginManager::loadPlugin(const QFileInfo &dirInfo)
+bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
 {
-    if (!dirInfo.isDir() || dirInfo.isSymLink()) return false;
-    const QString id = dirInfo.fileName();
-    if (!safePluginId(id) || !m_allowedIds.contains(id) || m_plugins.contains(id) || m_plugins.size() >= 16) return false;
-    const QString root = QDir::cleanPath(m_directory.canonicalPath()) + QDir::separator();
-    const QString path = QDir::cleanPath(dirInfo.canonicalFilePath());
-    if (path.isEmpty() || !path.startsWith(root, Qt::CaseSensitive)) return false;
+    if (!scriptInfo.isFile() || scriptInfo.isSymLink()
+        || m_plugins.size() >= MaxPlugins)
+        return false;
 
-    const QFileInfo manifestInfo(QDir(path).filePath(QStringLiteral("manifest.json")));
-    const QFileInfo scriptInfo(QDir(path).filePath(QStringLiteral("main.js")));
-    if (!manifestInfo.isFile() || manifestInfo.isSymLink() || manifestInfo.size() <= 0
-        || manifestInfo.size() > MaxManifestBytes || !scriptInfo.isFile()
-        || scriptInfo.isSymLink() || scriptInfo.size() <= 0 || scriptInfo.size() > MaxScriptBytes) {
-        emit m_core->logMessage(QStringLiteral("Plugin %1 rejected: invalid manifest or script file").arg(id));
+    const QString id = scriptInfo.completeBaseName();
+    if (!safePluginId(id) || !m_allowedIds.contains(id) || m_plugins.contains(id))
+        return false;
+
+    const QString root = QDir::cleanPath(m_directory.canonicalPath()) + QDir::separator();
+    const QString path = QDir::cleanPath(scriptInfo.canonicalFilePath());
+    if (path.isEmpty() || !path.startsWith(root, Qt::CaseSensitive)
+        || scriptInfo.size() <= 0 || scriptInfo.size() > MaxScriptBytes) {
+        emit m_core->logMessage(QStringLiteral("Plugin %1 rejected: invalid path or size").arg(id));
         return false;
     }
-    QFile mf(manifestInfo.canonicalFilePath()), sf(scriptInfo.canonicalFilePath());
-    if (!mf.open(QIODevice::ReadOnly) || !sf.open(QIODevice::ReadOnly)) return false;
-    const QByteArray manifestBytes = mf.read(MaxManifestBytes + 1);
-    const QByteArray scriptBytes = sf.read(MaxScriptBytes + 1);
-    if (manifestBytes.size() > MaxManifestBytes || scriptBytes.size() > MaxScriptBytes) return false;
 
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(manifestBytes, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) return false;
-    const QJsonObject manifest = doc.object();
-    if (manifest.value(QStringLiteral("id")).toString() != id
-        || manifest.value(QStringLiteral("api_version")).toInt(-1) != 1
-        || manifest.value(QStringLiteral("entry")).toString() != QStringLiteral("main.js")) {
-        emit m_core->logMessage(QStringLiteral("Plugin %1 rejected: manifest identity/API mismatch").arg(id));
+    QFile script(path);
+    if (!script.open(QIODevice::ReadOnly))
+        return false;
+    const QByteArray source = script.read(MaxScriptBytes + 1);
+    if (source.isEmpty() || source.size() > MaxScriptBytes
+        || source.contains('\0')) {
+        emit m_core->logMessage(QStringLiteral("Plugin %1 rejected: invalid JavaScript file").arg(id));
+        return false;
+    }
+    const QString sourceText = QString::fromUtf8(source);
+    if (sourceText.toUtf8() != source) {
+        emit m_core->logMessage(QStringLiteral("Plugin %1 rejected: script is not valid UTF-8").arg(id));
         return false;
     }
 
     auto *entry = new Entry;
     entry->id = id;
-    entry->path = path;
-    entry->digest = QCryptographicHash::hash(manifestBytes + scriptBytes, QCryptographicHash::Sha256).toHex();
     entry->engine = new QJSEngine(this);
-    entry->api = new ScriptPluginApi(m_core, entry->engine, id,
-        parsePermissions(manifest.value(QStringLiteral("permissions")).toArray()), entry->engine);
+
+    Permissions permissions = permissionFlag(Permission::ReceiveMessage)
+        | permissionFlag(Permission::ReceiveGift)
+        | permissionFlag(Permission::GiftInfo);
+    if (m_sendMessageIds.contains(id))
+        permissions |= permissionFlag(Permission::SendMessage);
+
+    entry->api = new ScriptPluginApi(m_core, entry->engine, id, permissions, entry->engine);
     connect(entry->api, &ScriptPluginApi::logMessage, m_core, &Core::logMessage);
-    entry->engine->globalObject().setProperty(QStringLiteral("BLKT"), entry->engine->newQObject(entry->api));
-    const QJSValue result = runWithScriptDeadline(entry->engine, [&entry, &scriptBytes] {
-        return entry->engine->evaluate(QString::fromUtf8(scriptBytes), QStringLiteral("main.js"));
+    entry->engine->globalObject().setProperty(
+        QStringLiteral("BLKT"), entry->engine->newQObject(entry->api));
+
+    const QJSValue result = runWithScriptDeadline(entry->engine, [&] {
+        return entry->engine->evaluate(sourceText, scriptInfo.fileName());
     });
     if (result.isError()) {
         emit m_core->logMessage(QStringLiteral("Plugin %1 failed at line %2: %3")
@@ -227,42 +248,56 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &dirInfo)
         delete entry;
         return false;
     }
+
     m_plugins.insert(id, entry);
-    emit m_core->logMessage(QStringLiteral("Script plugin loaded: %1 (SHA-256 %2)")
-        .arg(id, QString::fromLatin1(entry->digest.left(16))));
+    emit m_core->logMessage(QStringLiteral("Community JavaScript plugin loaded: %1").arg(id));
     return true;
 }
 
-void ScriptPluginManager::dispatchMessage(const MessageEvent &e)
+void ScriptPluginManager::dispatchMessage(const MessageEvent &event)
 {
-    const QVariantMap event{{QStringLiteral("room_id"), e.roomId},
-        {QStringLiteral("user"), e.user}, {QStringLiteral("text"), e.text},
-        {QStringLiteral("timestamp"), static_cast<qlonglong>(e.timestamp)}};
-    for (Entry *entry : m_plugins) if (entry && entry->api) entry->api->dispatch(QStringLiteral("message"), event);
+    const QVariantMap payload{
+        {QStringLiteral("roomId"), event.roomId},
+        {QStringLiteral("user"), event.user},
+        {QStringLiteral("text"), event.text},
+        {QStringLiteral("timestamp"), static_cast<qlonglong>(event.timestamp)}};
+    for (Entry *entry : m_plugins)
+        if (entry && entry->api)
+            entry->api->dispatch(QStringLiteral("message"), payload);
 }
-void ScriptPluginManager::dispatchGift(const GiftEvent &e)
+
+void ScriptPluginManager::dispatchGift(const GiftEvent &event)
 {
-    const QVariantMap event{{QStringLiteral("room_id"), e.roomId},
-        {QStringLiteral("user"), e.user}, {QStringLiteral("gift_name"), e.giftName},
-        {QStringLiteral("gift_id"), QString::number(e.giftId)},
-        {QStringLiteral("count"), static_cast<uint>(e.count)},
-        {QStringLiteral("total_coin"), QString::number(e.totalCoin)},
-        {QStringLiteral("coin_type"), e.coinType},
-        {QStringLiteral("timestamp"), static_cast<qlonglong>(e.timestamp)}};
-    for (Entry *entry : m_plugins) if (entry && entry->api) entry->api->dispatch(QStringLiteral("gift"), event);
+    const QVariantMap payload{
+        {QStringLiteral("roomId"), event.roomId},
+        {QStringLiteral("user"), event.user},
+        {QStringLiteral("giftName"), event.giftName},
+        {QStringLiteral("giftId"), QString::number(event.giftId)},
+        {QStringLiteral("count"), static_cast<uint>(event.count)},
+        {QStringLiteral("totalCoin"), QString::number(event.totalCoin)},
+        {QStringLiteral("coinType"), event.coinType},
+        {QStringLiteral("timestamp"), static_cast<qlonglong>(event.timestamp)}};
+    for (Entry *entry : m_plugins)
+        if (entry && entry->api)
+            entry->api->dispatch(QStringLiteral("gift"), payload);
 }
+
 void ScriptPluginManager::unloadPlugin(const QString &id)
 {
     Entry *entry = m_plugins.take(id);
-    if (!entry) return;
+    if (!entry)
+        return;
     delete entry->engine;
     delete entry;
 }
+
 void ScriptPluginManager::stop()
 {
-    if (!m_started) return;
+    if (!m_started)
+        return;
     m_started = false;
     const QStringList ids = m_plugins.keys();
-    for (const QString &id : ids) unloadPlugin(id);
+    for (const QString &id : ids)
+        unloadPlugin(id);
 }
 }

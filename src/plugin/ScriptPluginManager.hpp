@@ -1,13 +1,14 @@
 #pragma once
+
 #include "IPlugin.hpp"
-#include <QObject>
+
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QJSEngine>
 #include <QJSValue>
-#include <QHash>
 #include <QList>
-#include <QPointer>
+#include <QObject>
 #include <QSet>
 #include <QStringList>
 #include <QVariantMap>
@@ -21,13 +22,17 @@ class ScriptPluginApi final : public QObject
 public:
     ScriptPluginApi(Core *core, QJSEngine *engine, QString pluginId,
                     Permissions permissions, QObject *parent = nullptr);
+
     Q_INVOKABLE bool on(const QString &eventName, const QJSValue &callback);
-    Q_INVOKABLE bool sendMessage(const QString &roomId, const QString &text);
+    Q_INVOKABLE bool sendMessage(const QString &text);
     Q_INVOKABLE QVariantMap giftInfo(const QString &giftId) const;
     Q_INVOKABLE void log(const QString &message);
+
     void dispatch(const QString &eventName, const QVariantMap &event);
+
 signals:
     void logMessage(const QString &message);
+
 private:
     Core *m_core = nullptr;
     QJSEngine *m_engine = nullptr;
@@ -44,25 +49,29 @@ class ScriptPluginManager final : public QObject
 public:
     ScriptPluginManager(Core *core, const QString &directory,
                         const QStringList &allowedPluginIds,
+                        const QStringList &sendMessagePluginIds,
                         QObject *parent = nullptr);
     ~ScriptPluginManager() override;
+
     bool start();
     void stop();
+
 private:
     struct Entry {
         QString id;
-        QString path;
-        QByteArray digest;
         QJSEngine *engine = nullptr;
         ScriptPluginApi *api = nullptr;
     };
-    bool loadPlugin(const QFileInfo &directoryInfo);
+
+    bool loadPlugin(const QFileInfo &scriptInfo);
     void unloadPlugin(const QString &id);
     void dispatchMessage(const MessageEvent &event);
     void dispatchGift(const GiftEvent &event);
+
     Core *m_core = nullptr;
     QDir m_directory;
     QSet<QString> m_allowedIds;
+    QSet<QString> m_sendMessageIds;
     QHash<QString, Entry *> m_plugins;
     bool m_started = false;
 };

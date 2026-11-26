@@ -1,10 +1,9 @@
 #pragma once
 
-#include <QtGlobal>
 #include <QFlags>
 #include <QString>
+#include <QtGlobal>
 
-// Shared value types for IPC serialization; plugins are never loaded into the host process.
 namespace blkt {
 
 enum class Permission : quint32 {
@@ -51,12 +50,5 @@ struct GiftInfo {
     quint64 price = 0;
     QString coinType;
 };
-
-namespace PluginProtocol {
-inline constexpr int Version = 1;
-inline constexpr qsizetype MaxPacketBytes = 64 * 1024;
-inline constexpr int MaxRequestsPerSecond = 30;
-inline constexpr int MaxPacketsPerSecond = 100;
-}
 
 } // namespace blkt

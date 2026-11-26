@@ -2,6 +2,7 @@
 #include "core/Core.hpp"
 #include "platform/bilibili/BilibiliAdapter.hpp"
 #include "plugin/ScriptPluginManager.hpp"
+
 #include <QCoreApplication>
 #include <QCommandLineParser>
 #include <QDateTime>
@@ -14,6 +15,7 @@
 namespace {
 volatile std::sig_atomic_t g_stopRequested = 0;
 void requestStop(int) { g_stopRequested = 1; }
+
 void writeLog(const QString &message)
 {
     QTextStream out(stdout);
@@ -32,12 +34,23 @@ int main(int argc, char *argv[])
     parser.setApplicationDescription(QStringLiteral("BLKT headless Bilibili live server"));
     parser.addHelpOption();
     parser.addVersionOption();
-    QCommandLineOption roomOption({QStringLiteral("r"), QStringLiteral("room")},
-        QStringLiteral("Live room ID to connect after account authentication."), QStringLiteral("room-id"));
-    QCommandLineOption pluginOption(QStringLiteral("allow-plugin"),
-        QStringLiteral("Explicitly allow a trusted script plugin ID; repeatable."), QStringLiteral("plugin-id"));
+
+    const QCommandLineOption roomOption(
+        {QStringLiteral("r"), QStringLiteral("room")},
+        QStringLiteral("Live room ID to connect after account authentication."),
+        QStringLiteral("room-id"));
+    const QCommandLineOption pluginOption(
+        QStringLiteral("allow-plugin"),
+        QStringLiteral("Allow a trusted community JavaScript plugin by filename; repeatable."),
+        QStringLiteral("plugin-name"));
+    const QCommandLineOption pluginSendOption(
+        QStringLiteral("plugin-send-message"),
+        QStringLiteral("Grant the named allowed plugin permission to send messages."),
+        QStringLiteral("plugin-name"));
+
     parser.addOption(roomOption);
     parser.addOption(pluginOption);
+    parser.addOption(pluginSendOption);
     parser.process(app);
 
     const QString roomId = parser.value(roomOption).trimmed();
@@ -45,6 +58,22 @@ int main(int argc, char *argv[])
         static const QRegularExpression roomPattern(QStringLiteral("^[0-9]{1,20}$"));
         if (!roomPattern.match(roomId).hasMatch()) {
             QTextStream(stderr) << "Invalid room ID.\n";
+            return 2;
+        }
+    }
+
+    const QStringList allowedPlugins = parser.values(pluginOption);
+    const QStringList sendMessagePlugins = parser.values(pluginSendOption);
+    static const QRegularExpression pluginPattern(QStringLiteral("^[A-Za-z0-9_-]{1,48}$"));
+    for (const QString &id : allowedPlugins) {
+        if (!pluginPattern.match(id).hasMatch()) {
+            QTextStream(stderr) << "Invalid plugin name: " << id << Qt::endl;
+            return 2;
+        }
+    }
+    for (const QString &id : sendMessagePlugins) {
+        if (!pluginPattern.match(id).hasMatch() || !allowedPlugins.contains(id)) {
+            QTextStream(stderr) << "--plugin-send-message requires the same name in --allow-plugin.\n";
             return 2;
         }
     }
@@ -60,9 +89,10 @@ int main(int argc, char *argv[])
 
     blkt::Core core;
     const QString pluginDirectory = QDir(appDirectory).filePath(QStringLiteral("plugins"));
-    blkt::ScriptPluginManager plugins(&core, pluginDirectory, parser.values(pluginOption));
+    blkt::ScriptPluginManager plugins(
+        &core, pluginDirectory, allowedPlugins, sendMessagePlugins);
     if (!plugins.start()) {
-        QTextStream(stderr) << "Plugin manager initialization failed." << Qt::endl;
+        QTextStream(stderr) << "Plugin manager initialization failed.\n";
         credentials.clear();
         return 3;
     }
@@ -107,6 +137,7 @@ int main(int argc, char *argv[])
     writeLog(QStringLiteral("BLKT does not persist logs, cache, configuration, database or temporary files"));
     if (roomId.isEmpty())
         writeLog(QStringLiteral("No room selected; use --room <room-id> to connect a live room"));
+
     const bool started = bilibili.authenticate(credentials.cookieHeader(), credentials.csrfToken());
     credentials.clear();
     if (!started) {
