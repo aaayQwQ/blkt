@@ -72,6 +72,8 @@ void Core::clearSession()
     m_csrf.fill(QChar(u'\0'));
     m_csrf.clear();
     m_loggedIn = false;
+    m_lastSendMs = -100000;
+    m_gifts.clear();
 }
 
 void Core::logout()
