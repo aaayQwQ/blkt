@@ -149,8 +149,12 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
         }
     });
 
-    connect(&m_webSocket, &QWebSocket::connected,
-            this, &BilibiliAdapter::sendAuthPacket);
+    connect(&m_webSocket, &QWebSocket::connected, this, [this] {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili WebSocket transport connected; sending room authentication"));
+        sendAuthPacket();
+    });
     connect(&m_webSocket, &QWebSocket::binaryMessageReceived,
             this, &BilibiliAdapter::handleBinaryMessage);
     connect(&m_webSocket, &QWebSocket::disconnected, this, [this] {
@@ -164,9 +168,10 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             const QString closeReason = Guard::cleanLogText(m_webSocket.closeReason(), 160);
             const int closeCode = static_cast<int>(m_webSocket.closeCode());
             QString detail = QStringLiteral(
-                "Bilibili WebSocket disconnected: room %1, close code %2")
+                "Bilibili WebSocket disconnected: room %1, close code %2, room-authenticated %3")
                 .arg(m_roomId.isEmpty() ? QStringLiteral("unknown") : m_roomId)
-                .arg(closeCode);
+                .arg(closeCode)
+                .arg(m_roomConnected ? QStringLiteral("yes") : QStringLiteral("no"));
             if (!closeReason.isEmpty())
                 detail += QStringLiteral(", reason '%1'").arg(closeReason);
             if (m_webSocket.error() != QAbstractSocket::UnknownSocketError) {
@@ -623,8 +628,25 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     socketUrl.setPath(QStringLiteral("/sub"));
 
     QNetworkRequest socketRequest(socketUrl);
+    // Match the authenticated browser session used to obtain the WBI danmu token.
+    // Bilibili's live gateway applies additional risk checks to the WebSocket
+    // handshake; omitting the session Cookie can cause an immediate close even
+    // when the REST authentication and getDanmuInfo requests succeeded.
     socketRequest.setRawHeader("Origin", "https://live.bilibili.com");
-    socketRequest.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    socketRequest.setRawHeader("Referer", "https://live.bilibili.com/");
+    socketRequest.setRawHeader(
+        "User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/131.0.0.0 Safari/537.36");
+    socketRequest.setRawHeader("Cookie", m_cookie);
+    socketRequest.setRawHeader("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8");
+    socketRequest.setRawHeader("Cache-Control", "no-cache");
+    socketRequest.setRawHeader("Pragma", "no-cache");
+    if (m_core)
+        emit m_core->logMessage(QStringLiteral(
+            "Opening authenticated Bilibili WebSocket: host %1, port %2")
+            .arg(host).arg(port));
     m_authTimeout.start();
     m_webSocket.open(socketRequest);
 }
@@ -889,9 +911,19 @@ void BilibiliAdapter::sendAuthPacket()
     if (!m_roomRequested || !m_authenticated)
         return;
 
+    if (m_danmuToken.isEmpty() || m_accountId == 0 || m_buvid3.isEmpty()) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Cannot authenticate Bilibili live WebSocket: required session fields are missing"));
+        m_webSocket.abort();
+        return;
+    }
+
     QJsonObject auth;
     auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
     auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
+    // Protocol v2 keeps the decoder dependency-free (zlib via Qt). Protocol v3
+    // requires Brotli, which is deliberately not introduced as a new runtime DLL.
     auth.insert(QStringLiteral("protover"), 2);
     auth.insert(QStringLiteral("buvid"), m_buvid3);
     auth.insert(QStringLiteral("platform"), QStringLiteral("web"));
@@ -901,7 +933,18 @@ void BilibiliAdapter::sendAuthPacket()
     const QByteArray packet = makePacket(
         OperationAuth, ProtocolVersionPlain,
         QJsonDocument(auth).toJson(QJsonDocument::Compact));
-    m_webSocket.sendBinaryMessage(packet);
+    const qint64 queuedBytes = m_webSocket.sendBinaryMessage(packet);
+    if (m_core)
+        emit m_core->logMessage(QStringLiteral(
+            "Bilibili WebSocket auth packet queued: %1/%2 bytes")
+            .arg(queuedBytes).arg(packet.size()));
+    if (queuedBytes != packet.size()) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili WebSocket auth packet could not be queued completely"));
+        m_webSocket.abort();
+        return;
+    }
     m_authTimeout.start();
 }
 
@@ -960,6 +1003,12 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
                 const QString authMessage = authResult.value(QStringLiteral("message")).toString(
                     authResult.value(QStringLiteral("msg")).toString(QStringLiteral("no server message")));
                 const bool accepted = error.error == QJsonParseError::NoError && authCode == 0;
+                if (m_core)
+                    emit m_core->logMessage(QStringLiteral(
+                        "Bilibili WebSocket authentication reply: code %1, JSON status %2")
+                        .arg(authCode)
+                        .arg(error.error == QJsonParseError::NoError
+                                 ? QStringLiteral("valid") : error.errorString()));
                 m_authTimeout.stop();
                 if (accepted) {
                     m_roomConnected = true;
