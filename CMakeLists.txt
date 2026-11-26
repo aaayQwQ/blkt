@@ -56,3 +56,9 @@ else()
         -Wsign-conversion
     )
 endif()
+
+# Create the portable plugin directory in the build output, not at runtime.
+add_custom_command(TARGET blkt POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:blkt>/plugins"
+)
