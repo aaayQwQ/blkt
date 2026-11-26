@@ -52,6 +52,7 @@ MainWindow::MainWindow(Core *core, BilibiliAdapter *bilibili,
     auto *roomRow = new QHBoxLayout;
     m_roomIdEdit = new QLineEdit(accountGroup);
     m_roomIdEdit->setPlaceholderText(QStringLiteral("Bilibili live room ID"));
+    m_roomIdEdit->setMaxLength(20);
     m_connectButton = new QPushButton(QStringLiteral("Connect"), accountGroup);
     m_disconnectButton = new QPushButton(QStringLiteral("Disconnect"), accountGroup);
     m_disconnectButton->setEnabled(false);
