@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include "../plugin/IPlugin.hpp"
 #include <QString>
 
 class QCheckBox;
@@ -8,6 +9,7 @@ class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
+class QTimer;
 
 namespace blkt {
 
@@ -54,6 +56,7 @@ private:
     QCheckBox *m_receiveGift = nullptr;
     QCheckBox *m_giftInfo = nullptr;
     QPlainTextEdit *m_logView = nullptr;
+    QTimer *m_statusTimer = nullptr;
 };
 
 } // namespace blkt
