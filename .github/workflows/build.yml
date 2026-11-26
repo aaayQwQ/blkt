@@ -75,8 +75,9 @@ jobs:
 
       - name: Configure
         run: |
-          QT_PREFIX="$(brew --prefix qtbase);$(brew --prefix qtwebsockets)"
-          cmake -S . -B build -DCMAKE_PREFIX_PATH="$QT_PREFIX" -DCMAKE_BUILD_TYPE=Release
+          QT_BASE="$(brew --prefix qtbase)"
+          QT_WEBSOCKETS="$(brew --prefix qtwebsockets)"
+          cmake -S . -B build -DCMAKE_PREFIX_PATH="$QT_BASE" -DQt6WebSockets_DIR="$QT_WEBSOCKETS/lib/cmake/Qt6WebSockets" -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release --parallel
