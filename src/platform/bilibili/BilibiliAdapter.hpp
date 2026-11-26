@@ -84,7 +84,7 @@ private:
     bool m_authenticated = false;
 
     static constexpr qsizetype MaxResponseBytes = 64 * 1024;
-    static constexpr qsizetype MaxGiftCatalogBytes = 512 * 1024;
+    static constexpr qsizetype MaxGiftCatalogBytes = 4 * 1024 * 1024;
     static constexpr int RequestTimeoutMs = 15000;
     static constexpr int HeartbeatIntervalMs = 30000;
     static constexpr int MaxWebSocketPacketBytes = 4 * 1024 * 1024;
