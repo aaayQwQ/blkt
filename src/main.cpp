@@ -6,6 +6,7 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QMessageBox>
 
 int main(int argc, char *argv[])
 {
