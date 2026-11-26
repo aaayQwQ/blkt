@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 #include <QUrl>
 
 namespace blkt {
@@ -57,7 +58,6 @@ bool BilibiliAdapter::authenticate(const QByteArray &cookie, const QString &csrf
     request.setRawHeader("User-Agent",
                          "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
     request.setRawHeader("Referer", "https://www.bilibili.com/");
-    request.setTransferTimeout(RequestTimeoutMs);
 
     m_reply = m_network.get(request);
     if (!m_reply) {
