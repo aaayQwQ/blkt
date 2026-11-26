@@ -161,13 +161,15 @@ bool CredentialStore::parseNetscapeCookieFile(const QByteArray &data)
         const QByteArray name = fields.at(5).trimmed();
         const QByteArray value = fields.at(6).trimmed();
 
-        // Only shared, root-path, HTTPS cookies are safe to reuse across the
-        // fixed Bilibili API hosts used by this client. Host-only and scoped
-        // cookies are deliberately excluded.
+        // Only shared, root-path cookies are reused across the fixed Bilibili
+        // API hosts. Both Secure values are valid for HTTPS requests; every
+        // cookie-bearing endpoint in this client uses HTTPS/WSS. Host-only
+        // and path-scoped cookies are deliberately excluded.
         if (!isSharedBilibiliDomain(domain)
             || includeSubdomains != QByteArrayLiteral("TRUE")
             || path != QByteArrayLiteral("/")
-            || secure != QByteArrayLiteral("TRUE")
+            || (secure != QByteArrayLiteral("TRUE")
+                && secure != QByteArrayLiteral("FALSE"))
             || !expiryOk || (expiry != 0 && expiry <= now)
             || !allowedSessionCookie(name)
             || !safeCookiePart(value))
