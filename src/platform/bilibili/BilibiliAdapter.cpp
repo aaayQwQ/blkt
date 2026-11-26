@@ -913,7 +913,7 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
         event.roomId = m_roomId;
         event.user = userInfo.at(1).toString();
         event.text = info.at(1).toString();
-        event.timestamp = QDateTime::currentSecsSinceEpoch();
+        event.timestamp = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
         m_core->ingestMessage(event);
         return;
     }
