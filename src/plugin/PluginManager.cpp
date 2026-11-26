@@ -310,7 +310,15 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     connect(process, &QProcess::readyReadStandardOutput, this,
             [this, id] { consumeStdout(id); });
     connect(process, &QProcess::readyReadStandardError, this, [this, id, process] {
-        const QByteArray ignored = process->readAllStandardError();
+        process->setReadChannel(QProcess::StandardError);
+        const qint64 available = process->bytesAvailable();
+        if (available > MaxPacketBytes) {
+            process->setReadChannel(QProcess::StandardOutput);
+            stopPlugin(id);
+            return;
+        }
+        const QByteArray ignored = process->read(available);
+        process->setReadChannel(QProcess::StandardOutput);
         if (!ignored.isEmpty() && m_core)
             emit m_core->logMessage(QStringLiteral("Plugin %1 wrote to stderr (content suppressed)").arg(id));
     });
