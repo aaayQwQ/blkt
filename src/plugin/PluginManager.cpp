@@ -3,6 +3,7 @@
 #include "../core/Guard.hpp"
 
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
@@ -367,12 +368,14 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
         environment.insert(QStringLiteral("WINDIR"), systemRoot);
         const QString systemPath =
             QDir(systemRoot).filePath(QStringLiteral("System32"));
+        const QString applicationPath = QCoreApplication::applicationDirPath();
         const QString qtBinaryPath =
             QLibraryInfo::path(QLibraryInfo::BinariesPath);
+        QStringList searchPaths{applicationPath, systemPath};
+        if (!qtBinaryPath.isEmpty() && qtBinaryPath != applicationPath)
+            searchPaths.append(qtBinaryPath);
         environment.insert(QStringLiteral("PATH"),
-                           qtBinaryPath.isEmpty()
-                               ? systemPath
-                               : systemPath + QLatin1Char(';') + qtBinaryPath);
+                           searchPaths.join(QLatin1Char(';')));
     }
 #else
     environment.insert(QStringLiteral("PATH"), QStringLiteral("/usr/bin:/bin"));
