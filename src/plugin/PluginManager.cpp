@@ -146,7 +146,7 @@ void PluginManager::setGrantedPermissions(const QString &pluginId, Permissions p
         entry->permissions = permissions;
         QJsonObject packet;
         packet.insert(QStringLiteral("type"), QStringLiteral("permissions"));
-        packet.insert(QStringLiteral("permissions"), permissionsFor(permissions));
+        packet.insert(QStringLiteral("permissions"), QJsonArray::fromStringList(permissionsFor(permissions)));
         sendPacket(entry, packet);
     }
 }
@@ -297,7 +297,7 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
         init.insert(QStringLiteral("type"), QStringLiteral("initialize"));
         init.insert(QStringLiteral("protocol"), 1);
         init.insert(QStringLiteral("plugin_id"), entry->id);
-        init.insert(QStringLiteral("permissions"), permissionsFor(entry->permissions));
+        init.insert(QStringLiteral("permissions"), QJsonArray::fromStringList(permissionsFor(entry->permissions)));
         if (!sendPacket(entry, init))
             stopPlugin(entry->id);
     });
