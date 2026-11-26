@@ -20,6 +20,15 @@ add_executable(blkt
 )
 target_link_libraries(blkt PRIVATE Qt6::Core Qt6::Network Qt6::WebSockets Qt6::Qml)
 set_target_properties(blkt PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>" WIN32_EXECUTABLE FALSE)
+if(APPLE)
+    set_target_properties(blkt PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "BLKT"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "org.blkt.server"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    )
+endif()
 if(MSVC)
     target_compile_options(blkt PRIVATE /W4 /permissive-)
 else()
@@ -31,9 +40,15 @@ add_executable(blkt_guard_smoke src/core/guard_smoke.cpp src/core/Guard.cpp)
 target_link_libraries(blkt_guard_smoke PRIVATE Qt6::Core)
 add_test(NAME security_guard_validation COMMAND blkt_guard_smoke)
 
-install(TARGETS blkt RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-install(DIRECTORY plugins/ DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
-        FILES_MATCHING PATTERN "manifest.json" PATTERN "*.js")
+if(APPLE)
+    install(TARGETS blkt BUNDLE DESTINATION .)
+    install(DIRECTORY plugins/ DESTINATION "blkt.app/Contents/MacOS/plugins"
+            FILES_MATCHING PATTERN "manifest.json" PATTERN "*.js")
+else()
+    install(TARGETS blkt RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    install(DIRECTORY plugins/ DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
+            FILES_MATCHING PATTERN "manifest.json" PATTERN "*.js")
+endif()
 
 if(WIN32 OR APPLE)
     set(deploy_script "${CMAKE_CURRENT_BINARY_DIR}/deploy-$<CONFIG>.cmake")
@@ -41,7 +56,7 @@ if(WIN32 OR APPLE)
         file(GENERATE OUTPUT "${deploy_script}" CONTENT "
 include(\"${QT_DEPLOY_SUPPORT}\")
 qt_deploy_runtime_dependencies(
-    EXECUTABLE \"\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}/$<TARGET_FILE_NAME:blkt>\"
+    EXECUTABLE \"$<TARGET_FILE_NAME:blkt>.app\"
     VERBOSE
 )
 ")
