@@ -7,6 +7,12 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <thread>
 
 namespace blkt {
 namespace {
@@ -16,6 +22,35 @@ bool safePluginId(const QString &id)
 {
     static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9_-]{1,48}$"));
     return re.match(id).hasMatch();
+}
+
+QJSValue runWithScriptDeadline(QJSEngine *engine,
+                               const std::function<QJSValue()> &operation)
+{
+    if (!engine)
+        return QJSValue(QJSValue::ErrorType::GenericError,
+                        QStringLiteral("Script engine unavailable"));
+
+    std::mutex mutex;
+    std::condition_variable finishedCondition;
+    bool finished = false;
+    std::thread watchdog([&] {
+        std::unique_lock<std::mutex> lock(mutex);
+        if (!finishedCondition.wait_for(lock, std::chrono::milliseconds(250),
+                                        [&] { return finished; })) {
+            engine->setInterrupted(true);
+        }
+    });
+
+    const QJSValue result = operation();
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        finished = true;
+    }
+    finishedCondition.notify_one();
+    watchdog.join();
+    engine->setInterrupted(false);
+    return result;
 }
 Permissions parsePermissions(const QJsonArray &items)
 {
@@ -89,7 +124,8 @@ void ScriptPluginApi::dispatch(const QString &eventName, const QVariantMap &even
     const QJSValue argument = m_engine->toScriptValue(event);
     const auto handlers = m_handlers.value(eventName);
     for (const QJSValue &handler : handlers) {
-        const QJSValue result = handler.call({argument});
+        const QJSValue result = runWithScriptDeadline(
+            m_engine, [&handler, &argument] { return handler.call({argument}); });
         if (result.isError())
             emit logMessage(QStringLiteral("Plugin %1 callback error: %2")
                 .arg(m_pluginId, result.toString().left(256)));
@@ -170,7 +206,9 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &dirInfo)
         parsePermissions(manifest.value(QStringLiteral("permissions")).toArray()), entry->engine);
     connect(entry->api, &ScriptPluginApi::logMessage, m_core, &Core::logMessage);
     entry->engine->globalObject().setProperty(QStringLiteral("BLKT"), entry->engine->newQObject(entry->api));
-    const QJSValue result = entry->engine->evaluate(QString::fromUtf8(scriptBytes), QStringLiteral("main.js"));
+    const QJSValue result = runWithScriptDeadline(entry->engine, [&entry, &scriptBytes] {
+        return entry->engine->evaluate(QString::fromUtf8(scriptBytes), QStringLiteral("main.js"));
+    });
     if (result.isError()) {
         emit m_core->logMessage(QStringLiteral("Plugin %1 failed at line %2: %3")
             .arg(id).arg(result.property(QStringLiteral("lineNumber")).toInt())
