@@ -44,6 +44,8 @@ private:
     QMap<QString, QString> signWbiParameters(QMap<QString, QString> parameters) const;
     void scheduleReconnect();
     void handleDanmuInfo(QNetworkReply *reply);
+    void requestGiftCatalog();
+    void handleGiftCatalog(QNetworkReply *reply);
     void sendAuthPacket();
     void sendHeartbeat();
     void handleBinaryMessage(const QByteArray &message);
@@ -54,10 +56,12 @@ private:
     QNetworkAccessManager m_network;
     QPointer<QNetworkReply> m_reply;
     QPointer<QNetworkReply> m_roomInfoReply;
+    QPointer<QNetworkReply> m_giftCatalogReply;
     QWebSocket m_webSocket;
     QTimer m_heartbeat;
     QTimer m_authTimeout;
     QTimer m_reconnectTimer;
+    QTimer m_giftTimeout;
     QTimer m_timeout;
     QByteArray m_cookie;
     QString m_csrf;
@@ -73,6 +77,7 @@ private:
     bool m_authenticated = false;
 
     static constexpr qsizetype MaxResponseBytes = 64 * 1024;
+    static constexpr qsizetype MaxGiftCatalogBytes = 512 * 1024;
     static constexpr int RequestTimeoutMs = 15000;
     static constexpr int HeartbeatIntervalMs = 30000;
     static constexpr int MaxWebSocketPacketBytes = 4 * 1024 * 1024;
