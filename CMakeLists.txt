@@ -54,6 +54,17 @@ add_executable(blkt_credential_smoke
 target_link_libraries(blkt_credential_smoke PRIVATE Qt6::Core)
 add_test(NAME credential_cookie_scope_validation COMMAND blkt_credential_smoke)
 
+add_executable(blkt_plugin_budget_smoke
+    src/plugin/plugin_budget_smoke.cpp
+    src/plugin/ScriptPluginManager.cpp
+    src/core/Core.cpp
+    src/core/Guard.cpp
+)
+target_link_libraries(blkt_plugin_budget_smoke PRIVATE
+    Qt6::Core Qt6::Network Qt6::Qml Threads::Threads
+)
+add_test(NAME plugin_event_execution_budget COMMAND blkt_plugin_budget_smoke)
+
 if(APPLE)
     install(TARGETS blkt BUNDLE DESTINATION .)
 else()
