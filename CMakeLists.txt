@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(BLKT VERSION 0.2.0 DESCRIPTION "Headless Bilibili live server" LANGUAGES CXX)
+project(BLKT VERSION 1.0.0 DESCRIPTION "Headless Bilibili live server" LANGUAGES CXX)
 include(GNUInstallDirs)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,7 @@ add_executable(blkt
     src/auth/CredentialStore.cpp src/auth/CredentialStore.hpp
     src/core/Core.cpp src/core/Core.hpp src/core/Guard.cpp src/core/Guard.hpp
     src/platform/bilibili/BilibiliAdapter.cpp src/platform/bilibili/BilibiliAdapter.hpp
+    src/platform/bilibili/BilibiliProtocol.hpp
     src/plugin/IPlugin.hpp
     src/plugin/ScriptPluginManager.cpp src/plugin/ScriptPluginManager.hpp
 )
@@ -53,6 +54,23 @@ add_executable(blkt_credential_smoke
 )
 target_link_libraries(blkt_credential_smoke PRIVATE Qt6::Core)
 add_test(NAME credential_cookie_scope_validation COMMAND blkt_credential_smoke)
+
+add_executable(blkt_protocol_smoke src/platform/bilibili/protocol_smoke.cpp)
+target_link_libraries(blkt_protocol_smoke PRIVATE Qt6::Core)
+add_test(NAME bilibili_protocol_validation COMMAND blkt_protocol_smoke)
+
+add_executable(blkt_plugin_dispatch_smoke
+    src/plugin/plugin_dispatch_smoke.cpp
+    src/plugin/ScriptPluginManager.cpp
+    src/core/Core.cpp
+    src/core/Guard.cpp
+)
+target_link_libraries(blkt_plugin_dispatch_smoke PRIVATE
+    Qt6::Core Qt6::Network Qt6::Qml Threads::Threads
+)
+add_test(NAME plugin_message_dispatch COMMAND blkt_plugin_dispatch_smoke)
+set_tests_properties(plugin_message_dispatch PROPERTIES TIMEOUT 5)
+
 
 add_executable(blkt_plugin_budget_smoke
     src/plugin/plugin_budget_smoke.cpp
