@@ -95,9 +95,9 @@ if(WIN32)
     endif()
     install(SCRIPT ${deploy_script})
     # Keep the executable and Qt runtime DLLs together in bin. Qt's plugin
-    # loader still requires a type subdirectory for the TLS backend, but the
-    # generated top-level "plugins" directory and unused plugin families
-    # are removed from the portable package.
+    # loader still requires a type subdirectory for the TLS backend. The
+    # generated Qt runtime plugin tree is removed; the top-level plugins
+    # directory is recreated empty for BLKT's community JavaScript scripts.
     install(CODE [[
         set(_blkt_bin "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin")
         set(_blkt_plugins "${_blkt_bin}/plugins")
@@ -114,6 +114,7 @@ if(WIN32)
         if(EXISTS "${_blkt_plugins}")
             file(REMOVE_RECURSE "${_blkt_plugins}")
         endif()
+        file(MAKE_DIRECTORY "${_blkt_plugins}")
         file(WRITE "${_blkt_bin}/qt.conf" "[Paths]\nPlugins=.\n")
     ]])
 elseif(APPLE)
