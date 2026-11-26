@@ -1,24 +1,29 @@
 #pragma once
 
-#include <QObject>
 #include <QString>
-#include <QDateTime>
-#include <QtPlugin>
-
-#include <functional>
-#include <optional>
+#include <QtGlobal>
 
 namespace blkt {
 
 enum class Permission : quint32 {
-    None          = 0,
-    ReceiveMessage= 1u << 0,
-    SendMessage   = 1u << 1,
-    ReceiveGift   = 1u << 2,
-    GiftInfo      = 1u << 3
+    None           = 0,
+    ReceiveMessage = 1u << 0,
+    SendMessage    = 1u << 1,
+    ReceiveGift    = 1u << 2,
+    GiftInfo       = 1u << 3
 };
-Q_DECLARE_FLAGS(Permissions, Permission)
-Q_DECLARE_OPERATORS_FOR_FLAGS(Permissions)
+
+using Permissions = quint32;
+
+constexpr Permissions permissionFlag(Permission permission)
+{
+    return static_cast<Permissions>(permission);
+}
+
+constexpr bool hasPermission(Permissions permissions, Permission permission)
+{
+    return (permissions & permissionFlag(permission)) != 0;
+}
 
 struct MessageEvent {
     QString user;
@@ -43,26 +48,4 @@ struct GiftInfo {
     QString coinType;
 };
 
-struct PluginContext {
-    QString pluginId;
-    std::function<bool(const QString &, const QString &)> sendMessage;
-    std::function<std::optional<GiftInfo>(quint64)> giftInfo;
-};
-
-class IPlugin
-{
-public:
-    virtual ~IPlugin() = default;
-
-    virtual QString id() const = 0;
-    virtual QString name() const = 0;
-    virtual void onLoad(const PluginContext &context) = 0;
-    virtual void onUnload() = 0;
-    virtual void onMessage(const MessageEvent &) {}
-    virtual void onGift(const GiftEvent &) {}
-};
-
 } // namespace blkt
-
-#define BLKT_PLUGIN_IID "org.blkt.Plugin/1.0"
-Q_DECLARE_INTERFACE(blkt::IPlugin, BLKT_PLUGIN_IID)
