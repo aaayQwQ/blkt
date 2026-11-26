@@ -93,3 +93,18 @@ else()
 endif()
 
 
+
+# A process-level smoke test exercises the actual worker stdin/stdout handshake.
+enable_testing()
+add_executable(blkt_worker_smoke
+    src/plugin/example/worker_smoke.cpp
+)
+set_target_properties(blkt_worker_smoke PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/tests"
+)
+target_link_libraries(blkt_worker_smoke PRIVATE Qt6::Core)
+add_dependencies(blkt_worker_smoke blkt_echo_plugin)
+add_test(
+    NAME plugin_worker_handshake
+    COMMAND blkt_worker_smoke "$<TARGET_FILE:blkt_echo_plugin>"
+)
