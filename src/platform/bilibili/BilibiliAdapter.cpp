@@ -316,6 +316,8 @@ bool BilibiliAdapter::connectRoom(const QString &roomId)
         return false;
     }
 
+    m_reconnectTimer.stop();
+    m_reconnectAttempt = 0;
     m_roomId = roomId;
     m_roomRequested = true;
     m_roomResolved = false;
