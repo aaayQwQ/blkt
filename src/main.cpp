@@ -1,5 +1,6 @@
 #include "auth/CredentialStore.hpp"
 #include "core/Core.hpp"
+#include "core/Guard.hpp"
 #include "platform/bilibili/BilibiliAdapter.hpp"
 #include "plugin/ScriptPluginManager.hpp"
 
@@ -55,8 +56,7 @@ int main(int argc, char *argv[])
 
     const QString roomId = parser.value(roomOption).trimmed();
     if (!roomId.isEmpty()) {
-        static const QRegularExpression roomPattern(QStringLiteral("^[0-9]{1,20}$"));
-        if (!roomPattern.match(roomId).hasMatch()) {
+        if (!blkt::Guard::validRoomId(roomId)) {
             QTextStream(stderr) << "Invalid room ID.\n";
             return 2;
         }
