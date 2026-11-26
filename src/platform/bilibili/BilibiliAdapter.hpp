@@ -47,6 +47,10 @@ private:
     void scheduleReconnect();
     void handleDanmuInfo(QNetworkReply *reply);
     void requestGiftCatalog();
+    void reportRoomEntry();
+    void handleRoomEntry(QNetworkReply *reply);
+    void sendViewerHeartbeat();
+    void handleViewerHeartbeat(QNetworkReply *reply);
     void handleRoomDetails(QNetworkReply *reply);
     void fetchGiftCatalog(int areaId, int parentAreaId);
     void handleGiftCatalog(QNetworkReply *reply);
@@ -62,12 +66,15 @@ private:
     QPointer<QNetworkReply> m_roomInfoReply;
     QPointer<QNetworkReply> m_giftCatalogReply;
     QPointer<QNetworkReply> m_roomDetailsReply;
+    QPointer<QNetworkReply> m_viewerEntryReply;
+    QPointer<QNetworkReply> m_viewerHeartbeatReply;
     QWebSocket m_webSocket;
     QTimer m_heartbeat;
     QTimer m_authTimeout;
     QTimer m_reconnectTimer;
     QTimer m_giftTimeout;
     QTimer m_roomDetailsTimeout;
+    QTimer m_viewerHeartbeatTimer;
     QTimer m_timeout;
     QByteArray m_cookie;
     QString m_csrf;
@@ -83,6 +90,8 @@ private:
     int m_reconnectAttempt = 0;
     bool m_authenticated = false;
     bool m_giftCatalogLoaded = false;
+    bool m_viewerEntryReported = false;
+    int m_viewerHeartbeatIntervalSeconds = 60;
     int m_commandDiagnosticCount = 0;
 
     static constexpr qsizetype MaxResponseBytes = 64 * 1024;
