@@ -99,7 +99,7 @@ if(WIN32)
     # generated top-level "plugins" directory and unused plugin families
     # are removed from the portable package.
     install(CODE [[
-        set(_blkt_bin "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
+        set(_blkt_bin "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin")
         set(_blkt_plugins "${_blkt_bin}/plugins")
         if(NOT EXISTS "${_blkt_plugins}/tls")
             message(FATAL_ERROR "Required Qt TLS plugin was not deployed")
@@ -108,6 +108,7 @@ if(WIN32)
         file(GLOB _blkt_tls_files "${_blkt_plugins}/tls/*")
         foreach(_blkt_tls_file IN LISTS _blkt_tls_files)
             get_filename_component(_blkt_tls_name "${_blkt_tls_file}" NAME)
+            file(REMOVE "${_blkt_bin}/tls/${_blkt_tls_name}")
             file(RENAME "${_blkt_tls_file}" "${_blkt_bin}/tls/${_blkt_tls_name}")
         endforeach()
         if(EXISTS "${_blkt_plugins}")
