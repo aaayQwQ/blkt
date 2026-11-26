@@ -114,7 +114,8 @@ bool PluginManager::trustPlugin(const QString &fileName, const QByteArray &sha25
 {
     const QFileInfo nameInfo(fileName);
     static const QRegularExpression digestPattern(QStringLiteral("^[A-Fa-f0-9]{64}$"));
-    if (fileName.isEmpty() || nameInfo.fileName() != fileName
+    if (fileName.isEmpty() || fileName.contains(QLatin1Char('/'))
+        || fileName.contains(QLatin1Char('\\\\')) || nameInfo.fileName() != fileName
         || fileName == QStringLiteral(".") || fileName == QStringLiteral("..")
         || !digestPattern.match(QString::fromLatin1(sha256)).hasMatch())
         return false;
@@ -134,6 +135,10 @@ bool PluginManager::hasTrustedDigest(const QFileInfo &file) const
 {
     const auto expected = m_trustedHashes.constFind(file.fileName());
     if (expected == m_trustedHashes.cend())
+        return false;
+
+    constexpr qint64 MaxPluginBytes = 256LL * 1024LL * 1024LL;
+    if (file.size() <= 0 || file.size() > MaxPluginBytes)
         return false;
 
     QFile input(file.canonicalFilePath());
