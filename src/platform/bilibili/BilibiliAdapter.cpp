@@ -1,6 +1,7 @@
 #include "BilibiliAdapter.hpp"
 #include "../../core/Core.hpp"
 #include "../../core/Guard.hpp"
+#include "BilibiliProtocol.hpp"
 
 #include <QAbstractSocket>
 #include <QDateTime>
@@ -96,9 +97,11 @@ QByteArray decompressZlib(const QByteArray &compressed)
 
 quint64 jsonUnsigned(const QJsonValue &value, bool *ok = nullptr)
 {
-    if (value.isString())
-        return value.toString().toULongLong(ok);
-    return value.toVariant().toULongLong(ok);
+    quint64 result = 0;
+    const bool valid = BilibiliProtocol::toUnsigned(value, &result);
+    if (ok)
+        *ok = valid;
+    return valid ? result : 0;
 }
 
 } // namespace
@@ -1397,38 +1400,11 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
         if (!m_core)
             return;
 
-        const QJsonArray info = command.value(QStringLiteral("info")).toArray();
-        const QJsonObject messageData = command.value(QStringLiteral("data")).toObject();
         QString user;
         QString text;
-
-        if (info.size() >= 3) {
-            text = info.at(1).toString();
-            const QJsonArray userInfo = info.at(2).toArray();
-            if (userInfo.size() >= 2)
-                user = userInfo.at(1).toString();
-
-            // Newer DANMU_MSG payloads may also expose structured user data
-            // at info[2][15].user.base.name.
-            if (user.isEmpty() && userInfo.size() > 15) {
-                const QJsonObject extension = userInfo.at(15).toObject();
-                const QJsonObject userObject = extension.value(QStringLiteral("user")).toObject();
-                const QJsonObject base = userObject.value(QStringLiteral("base")).toObject();
-                user = base.value(QStringLiteral("name")).toString();
-            }
-        }
-
-        if (user.isEmpty())
-            user = messageData.value(QStringLiteral("uname")).toString();
-        if (text.isEmpty())
-            text = messageData.value(QStringLiteral("content")).toString();
-        if (text.isEmpty())
-            text = messageData.value(QStringLiteral("msg")).toString();
-
-        if (user.trimmed().isEmpty() || text.trimmed().isEmpty()) {
+        if (!BilibiliProtocol::extractDanmaku(command, &user, &text)) {
             emit m_core->logMessage(QStringLiteral(
-                "Bilibili DANMU_MSG ignored: missing user or text (info fields %1)")
-                .arg(info.size()));
+                "Bilibili DANMU_MSG ignored: unsupported or incomplete payload"));
             return;
         }
 
