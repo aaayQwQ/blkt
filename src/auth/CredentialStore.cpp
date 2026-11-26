@@ -154,7 +154,9 @@ bool CredentialStore::parseNetscapeCookieFile(const QByteArray &data)
 
 bool CredentialStore::parseCookieHeader(const QByteArray &data)
 {
-    const QByteArray line = data.trimmed();
+    QByteArray line = data.trimmed();
+    if (line.startsWith("Cookie:", Qt::CaseInsensitive))
+        line = line.mid(7).trimmed();
     if (line.isEmpty() || line.size() > 8192)
         return false;
 
