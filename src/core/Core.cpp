@@ -64,6 +64,7 @@ void Core::abortActiveRequests()
 
 void Core::clearSession()
 {
+    ++m_sessionGeneration;
     abortActiveRequests();
     if (!m_cookie.isEmpty())
         m_cookie.fill('\0');
@@ -138,8 +139,9 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
         if (reply->bytesAvailable() > MaxReplyBytes)
             reply->abort();
     });
-    connect(reply, &QNetworkReply::finished, this, [this, reply] {
-        consumeReply(reply);
+    const quint64 requestGeneration = m_sessionGeneration;
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestGeneration] {
+        consumeReply(reply, requestGeneration);
     });
     timeout->start();
 
@@ -153,6 +155,11 @@ void Core::consumeReply(QNetworkReply *reply, quint64 generation)
         return;
 
     m_activeReplies.remove(reply);
+    if (generation != m_sessionGeneration) {
+        reply->deleteLater();
+        return;
+    }
+
     const QByteArray body = reply->read(MaxReplyBytes + 1);
     const bool tooLarge = body.size() > MaxReplyBytes;
     const bool transportOk = m_loggedIn
