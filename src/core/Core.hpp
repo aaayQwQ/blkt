@@ -49,7 +49,8 @@ private:
     QString m_csrf;
     QHash<quint64, GiftInfo> m_gifts;
     QElapsedTimer m_clock;
-    qint64 m_lastSendMs = -100000;\n    quint64 m_sessionGeneration = 0;
+    qint64 m_lastSendMs = -100000;
+    quint64 m_sessionGeneration = 0;
     bool m_loggedIn = false;
     static constexpr qint64 SendIntervalMs = 1000;
     static constexpr qsizetype MaxReplyBytes = 64 * 1024;
