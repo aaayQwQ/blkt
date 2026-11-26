@@ -68,7 +68,7 @@ BLKT.on("gift", function (event) {
 });
 ```
 
-Scripts use the ECMAScript implementation provided by Qt 6 QJSEngine, and the host enables strict mode for every plugin script. Node.js APIs such as `require`, `process`, and filesystem access are not provided. The host exposes no arbitrary HTTP, filesystem, process, shell, or account-cookie API to scripts. Message sending is an explicit capability and is limited to the active room; the core also applies its own validation and rate limit.
+Scripts use the ECMAScript implementation provided by Qt 6 QJSEngine. Node.js APIs such as `require`, `process`, and filesystem access are not provided. The host exposes no arbitrary HTTP, filesystem, process, shell, or account-cookie API to scripts. Message sending is an explicit capability and is limited to the active room; the core also applies its own validation and rate limit.
 
 Each file is limited to 512 KiB, at most 16 scripts are loaded, and each synchronous evaluation/callback has a 250 ms execution deadline. Repeated callback failures disable that plugin. QJSEngine runs scripts in the host process and is **not an OS security sandbox** or a hard memory quota. Only install code you trust.
 

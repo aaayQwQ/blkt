@@ -759,34 +759,20 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
     const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
     const QJsonObject root = document.object();
     const QJsonObject data = root.value(QStringLiteral("data")).toObject();
-    auto readList = [](const QJsonValue &value) -> QJsonArray {
-        if (value.isArray())
-            return value.toArray();
-        if (value.isObject())
-            return value.toObject().value(QStringLiteral("list")).toArray();
-        return {};
-    };
+    QJsonArray gifts = data.value(QStringLiteral("list")).toArray();
 
-    QJsonArray gifts = readList(data.value(QStringLiteral("list")));
     if (gifts.isEmpty()) {
         const QJsonObject giftConfig = data.value(QStringLiteral("gift_config")).toObject();
-        gifts = readList(giftConfig.value(QStringLiteral("base_config")));
-    }
-    if (gifts.isEmpty()) {
-        const QJsonObject giftData = data.value(QStringLiteral("gift_data")).toObject();
-        gifts = readList(giftData.value(QStringLiteral("room_gift_list")));
-        if (gifts.isEmpty())
-            gifts = readList(giftData.value(QStringLiteral("gift_list")));
-        if (gifts.isEmpty())
-            gifts = readList(giftData.value(QStringLiteral("list")));
+        const QJsonObject baseConfig = giftConfig.value(QStringLiteral("base_config")).toObject();
+        gifts = baseConfig.value(QStringLiteral("list")).toArray();
     }
     if (gifts.isEmpty())
-        gifts = readList(data.value(QStringLiteral("gift_list")));
+        gifts = data.value(QStringLiteral("gift_list")).toArray();
     if (gifts.isEmpty())
-        gifts = readList(data.value(QStringLiteral("gifts")));
+        gifts = data.value(QStringLiteral("gifts")).toArray();
 
     const int apiCode = root.value(QStringLiteral("code")).toInt(-1);
-    if (parseError.error != QJsonParseError::NoError || apiCode != 0) {
+    if (parseError.error != QJsonParseError::NoError || apiCode != 0 || gifts.isEmpty()) {
         QStringList dataKeys = data.keys();
         if (dataKeys.size() > 16)
             dataKeys = dataKeys.mid(0, 16);
@@ -794,25 +780,10 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
             root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message")));
         if (m_core) {
             emit m_core->logMessage(QStringLiteral(
-                "Gift catalog request failed: HTTP %1, API code %2, message '%3', JSON error '%4', data keys [%5], body bytes %6")
+                "Gift catalog response rejected: HTTP %1, API code %2, message '%3', JSON error '%4', data keys [%5], body bytes %6")
                 .arg(httpStatus).arg(apiCode).arg(apiMessage.left(160))
                 .arg(parseError.errorString().left(120))
                 .arg(dataKeys.join(QStringLiteral(", "))).arg(body.size()));
-        }
-        return;
-    }
-
-    if (gifts.isEmpty()) {
-        const QJsonObject giftData = data.value(QStringLiteral("gift_data")).toObject();
-        const QString roomGiftState = giftData.value(QStringLiteral("room_gift_list")).isNull()
-            ? QStringLiteral("null")
-            : QStringLiteral("present but empty or unsupported");
-        if (m_core) {
-            emit m_core->logMessage(QStringLiteral(
-                "Gift catalog unavailable: Bilibili returned no gift list (gift_config=%1, gift_data.room_gift_list=%2); keeping current in-memory catalog")
-                .arg(data.value(QStringLiteral("gift_config")).isNull()
-                         ? QStringLiteral("null") : QStringLiteral("present"),
-                     roomGiftState));
         }
         return;
     }
@@ -839,12 +810,6 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
         gift.coinType = Guard::cleanText(
             item.value(QStringLiteral("coin_type")).toString(), 16);
         catalog.append(gift);
-    }
-
-    if (catalog.isEmpty()) {
-        if (m_core)
-            emit m_core->logMessage(QStringLiteral("Gift catalog contained no valid gift entries; keeping current in-memory catalog"));
-        return;
     }
 
     if (m_core) {

@@ -26,8 +26,6 @@ public:
     void logout();
     bool isLoggedIn() const;
     void setRoomConnection(const QString &roomId, bool connected);
-    bool isRoomConnected() const;
-    QString activeRoomId() const;
 
     bool sendMessage(const QString &roomId, const QString &text);
     std::optional<GiftInfo> giftInfo(quint64 giftId) const;
