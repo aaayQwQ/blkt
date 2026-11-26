@@ -110,6 +110,8 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     m_authTimeout.setSingleShot(true);
     m_authTimeout.setInterval(RequestTimeoutMs);
     m_reconnectTimer.setSingleShot(true);
+    m_giftTimeout.setSingleShot(true);
+    m_giftTimeout.setInterval(RequestTimeoutMs);
 
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         if (m_reply && !m_reply->isFinished())
@@ -121,6 +123,10 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             this, &BilibiliAdapter::requestDanmuInfo);
     connect(&m_heartbeat, &QTimer::timeout,
             this, &BilibiliAdapter::sendHeartbeat);
+    connect(&m_giftTimeout, &QTimer::timeout, this, [this] {
+        if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
+            m_giftCatalogReply->abort();
+    });
     connect(&m_authTimeout, &QTimer::timeout, this, [this] {
         if (m_webSocket.state() != QAbstractSocket::UnconnectedState)
             m_webSocket.abort();
@@ -433,6 +439,7 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     }
 
     m_danmuToken = token;
+    requestGiftCatalog();
     QUrl socketUrl;
     socketUrl.setScheme(QStringLiteral("wss"));
     socketUrl.setHost(host);
@@ -444,6 +451,115 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     socketRequest.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
     m_authTimeout.start();
     m_webSocket.open(socketRequest);
+}
+
+void BilibiliAdapter::requestGiftCatalog()
+{
+    if (!m_core || m_roomId.isEmpty())
+        return;
+    if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
+        m_giftCatalogReply->abort();
+
+    QUrl url(QStringLiteral(
+        "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("platform"), QStringLiteral("pc"));
+    query.addQueryItem(QStringLiteral("room_id"), m_roomId);
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Cookie", m_cookie);
+    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Referer", "https://live.bilibili.com/");
+
+    m_giftCatalogReply = m_network.get(request);
+    if (!m_giftCatalogReply) {
+        emit m_core->logMessage(QStringLiteral("Gift catalog request could not be created"));
+        return;
+    }
+
+    m_giftCatalogReply->setReadBufferSize(MaxGiftCatalogBytes);
+    connect(m_giftCatalogReply, &QIODevice::readyRead, this, [this] {
+        if (m_giftCatalogReply
+            && m_giftCatalogReply->bytesAvailable() > MaxGiftCatalogBytes)
+            m_giftCatalogReply->abort();
+    });
+    connect(m_giftCatalogReply, &QNetworkReply::finished, this, [this] {
+        if (m_giftCatalogReply)
+            handleGiftCatalog(m_giftCatalogReply);
+    });
+    m_giftTimeout.start();
+}
+
+void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
+{
+    if (!reply)
+        return;
+
+    m_giftTimeout.stop();
+    const QByteArray body = reply->read(MaxGiftCatalogBytes + 1);
+    const bool transportOk = reply->error() == QNetworkReply::NoError
+                             && body.size() <= MaxGiftCatalogBytes;
+    reply->deleteLater();
+    m_giftCatalogReply.clear();
+
+    if (!transportOk) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("Gift catalog request failed"));
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    const QJsonObject root = document.object();
+    const QJsonObject data = root.value(QStringLiteral("data")).toObject();
+    QJsonArray gifts = data.value(QStringLiteral("list")).toArray();
+
+    if (gifts.isEmpty()) {
+        const QJsonObject giftConfig =
+            data.value(QStringLiteral("gift_config")).toObject();
+        const QJsonObject baseConfig =
+            giftConfig.value(QStringLiteral("base_config")).toObject();
+        gifts = baseConfig.value(QStringLiteral("list")).toArray();
+    }
+
+    if (parseError.error != QJsonParseError::NoError
+        || root.value(QStringLiteral("code")).toInt(-1) != 0
+        || gifts.isEmpty()) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("Gift catalog response was invalid or empty"));
+        return;
+    }
+
+    QList<GiftInfo> catalog;
+    catalog.reserve(qMin(gifts.size(), 10000));
+    for (const QJsonValue &value : gifts) {
+        if (catalog.size() >= 10000)
+            break;
+        const QJsonObject item = value.toObject();
+        bool idOk = false;
+        const quint64 id = jsonUnsigned(item.value(QStringLiteral("id")), &idOk);
+        bool priceOk = false;
+        const quint64 price = jsonUnsigned(item.value(QStringLiteral("price")), &priceOk);
+        const QString name = Guard::cleanText(
+            item.value(QStringLiteral("name")).toString(), 128);
+        if (!idOk || id == 0 || name.isEmpty())
+            continue;
+
+        GiftInfo gift;
+        gift.id = id;
+        gift.name = name;
+        gift.price = priceOk ? price : 0;
+        gift.coinType = Guard::cleanText(
+            item.value(QStringLiteral("coin_type")).toString(), 16);
+        catalog.append(gift);
+    }
+
+    if (m_core) {
+        m_core->replaceGiftCatalog(catalog);
+        emit m_core->logMessage(
+            QStringLiteral("Gift catalog loaded into memory: %1 items").arg(catalog.size()));
+    }
 }
 
 void BilibiliAdapter::sendAuthPacket()
@@ -607,11 +723,15 @@ void BilibiliAdapter::disconnectRoom()
 
     if (m_roomInfoReply && !m_roomInfoReply->isFinished())
         m_roomInfoReply->abort();
+    if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
+        m_giftCatalogReply->abort();
     m_roomInfoReply.clear();
 
     if (m_webSocket.state() != QAbstractSocket::UnconnectedState)
         m_webSocket.close();
 
+    if (m_core)
+        m_core->replaceGiftCatalog({});
     m_roomId.clear();
     m_danmuToken.fill(QChar(u'\0'));
     m_danmuToken.clear();
