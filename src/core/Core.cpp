@@ -147,7 +147,7 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
     return true;
 }
 
-void Core::consumeReply(QNetworkReply *reply)
+void Core::consumeReply(QNetworkReply *reply, quint64 generation)
 {
     if (!reply)
         return;
