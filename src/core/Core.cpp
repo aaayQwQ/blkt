@@ -48,7 +48,7 @@ bool Core::login(const QByteArray &cookie, const QString &csrf)
     m_csrf = csrf;
     m_loggedIn = true;
     emit loginStateChanged(true);
-    emit logMessage(QStringLiteral("Session established"));
+    emit logMessage(QStringLiteral("Cookie format accepted locally; remote account authentication is not verified yet"));
     return true;
 }
 
