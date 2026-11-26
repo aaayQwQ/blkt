@@ -17,6 +17,16 @@ enum class Permission : quint32 {
 Q_DECLARE_FLAGS(Permissions, Permission)
 Q_DECLARE_OPERATORS_FOR_FLAGS(Permissions)
 
+constexpr Permissions permissionFlag(Permission permission) noexcept
+{
+    return Permissions(permission);
+}
+
+inline bool hasPermission(Permissions permissions, Permission permission) noexcept
+{
+    return permissions.testFlag(permission);
+}
+
 struct MessageEvent {
     QString roomId;
     QString user;
