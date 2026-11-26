@@ -64,12 +64,15 @@ if(WIN32)
     qt_generate_deploy_app_script(
         TARGET blkt
         OUTPUT_SCRIPT deploy_script
+        NO_TRANSLATIONS
         DEPLOY_TOOL_OPTIONS
-            --no-translations
-            --no-compiler-runtime
             --no-system-d3d-compiler
             --no-opengl-sw
             --no-quick-import
+            --no-quick
+            --no-opengl
+            --skip-plugin-types
+            generic,imageformats,networkinformation,platforms,qmltooling,styles
     )
     install(SCRIPT ${deploy_script})
     # Keep the executable and Qt runtime DLLs together in bin. Qt's plugin
@@ -79,14 +82,15 @@ if(WIN32)
     install(CODE [[
         set(_blkt_bin "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
         set(_blkt_plugins "${_blkt_bin}/plugins")
-        if(EXISTS "${_blkt_plugins}/tls")
-            file(MAKE_DIRECTORY "${_blkt_bin}/tls")
-            file(GLOB _blkt_tls_files "${_blkt_plugins}/tls/*")
-            foreach(_blkt_tls_file IN LISTS _blkt_tls_files)
-                get_filename_component(_blkt_tls_name "${_blkt_tls_file}" NAME)
-                file(RENAME "${_blkt_tls_file}" "${_blkt_bin}/tls/${_blkt_tls_name}")
-            endforeach()
+        if(NOT EXISTS "${_blkt_plugins}/tls")
+            message(FATAL_ERROR "Required Qt TLS plugin was not deployed")
         endif()
+        file(MAKE_DIRECTORY "${_blkt_bin}/tls")
+        file(GLOB _blkt_tls_files "${_blkt_plugins}/tls/*")
+        foreach(_blkt_tls_file IN LISTS _blkt_tls_files)
+            get_filename_component(_blkt_tls_name "${_blkt_tls_file}" NAME)
+            file(RENAME "${_blkt_tls_file}" "${_blkt_bin}/tls/${_blkt_tls_name}")
+        endforeach()
         if(EXISTS "${_blkt_plugins}")
             file(REMOVE_RECURSE "${_blkt_plugins}")
         endif()
