@@ -93,17 +93,20 @@ bool Core::isLoggedIn() const
 
 void Core::setRoomConnection(const QString &roomId, bool connected)
 {
-    if (roomId.isEmpty()) {
-        m_activeRoomId.clear();
-        m_roomConnected = false;
-        return;
-    }
-    if (!Guard::validRoomId(roomId))
+    if (!roomId.isEmpty() && !Guard::validRoomId(roomId))
         return;
 
+    const bool scopeChanged = roomId != m_activeRoomId
+                              || (!connected && m_roomConnected);
+    if (scopeChanged) {
+        ++m_sessionGeneration;
+        abortActiveRequests();
+        m_lastSendMs = -100000;
+    }
+
     m_activeRoomId = roomId;
-    m_roomConnected = connected;
-    if (!connected)
+    m_roomConnected = !roomId.isEmpty() && connected;
+    if (!m_roomConnected)
         m_gifts.clear();
 }
 
