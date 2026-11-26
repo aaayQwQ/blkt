@@ -69,7 +69,7 @@ jobs:
       - name: Archive portable package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path package\\* -DestinationPath BLKT-windows-x64.zip
+        run: Compress-Archive -Path package/* -DestinationPath BLKT-windows-x64.zip
 
       - name: Archive portable package (Unix)
         if: runner.os != 'Windows'
