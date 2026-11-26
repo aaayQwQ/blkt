@@ -144,7 +144,8 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QStringLiteral("application/x-www-form-urlencoded"));
     request.setRawHeader("Cookie", m_cookie);
-    request.setRawHeader("User-Agent", "BLKT/0.1 Qt");
+    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Referer", "https://live.bilibili.com/");
 
     QNetworkReply *reply = m_network.post(request, query.toString(QUrl::FullyEncoded).toUtf8());
     if (!reply) {
