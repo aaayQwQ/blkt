@@ -47,19 +47,57 @@ add_executable(blkt_guard_smoke src/core/guard_smoke.cpp src/core/Guard.cpp)
 target_link_libraries(blkt_guard_smoke PRIVATE Qt6::Core)
 add_test(NAME security_guard_validation COMMAND blkt_guard_smoke)
 
+add_executable(blkt_credential_smoke
+    src/auth/credential_smoke.cpp
+    src/auth/CredentialStore.cpp
+)
+target_link_libraries(blkt_credential_smoke PRIVATE Qt6::Core)
+add_test(NAME credential_cookie_scope_validation COMMAND blkt_credential_smoke)
+
 if(APPLE)
     install(TARGETS blkt BUNDLE DESTINATION .)
 else()
     install(TARGETS blkt RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
 
-if(WIN32 OR APPLE)
+if(WIN32)
+    qt_generate_deploy_app_script(
+        TARGET blkt
+        OUTPUT_SCRIPT deploy_script
+        DEPLOY_TOOL_OPTIONS
+            --no-translations
+            --no-compiler-runtime
+            --no-system-d3d-compiler
+            --no-opengl-sw
+            --no-quick-import
+    )
+    install(SCRIPT ${deploy_script})
+    # Keep the executable and Qt runtime DLLs together in bin. Qt's plugin
+    # loader still requires a type subdirectory for the TLS backend, but the
+    # generated top-level "plugins" directory and unused plugin families
+    # are removed from the portable package.
+    install(CODE [[
+        set(_blkt_bin "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}")
+        set(_blkt_plugins "${_blkt_bin}/plugins")
+        if(EXISTS "${_blkt_plugins}/tls")
+            file(MAKE_DIRECTORY "${_blkt_bin}/tls")
+            file(GLOB _blkt_tls_files "${_blkt_plugins}/tls/*")
+            foreach(_blkt_tls_file IN LISTS _blkt_tls_files)
+                get_filename_component(_blkt_tls_name "${_blkt_tls_file}" NAME)
+                file(RENAME "${_blkt_tls_file}" "${_blkt_bin}/tls/${_blkt_tls_name}")
+            endforeach()
+        endif()
+        if(EXISTS "${_blkt_plugins}")
+            file(REMOVE_RECURSE "${_blkt_plugins}")
+        endif()
+        file(WRITE "${_blkt_bin}/qt.conf" "[Paths]\nPlugins=.\n")
+    ]])
+elseif(APPLE)
     qt_generate_deploy_app_script(
         TARGET blkt
         OUTPUT_SCRIPT deploy_script
     )
     install(SCRIPT ${deploy_script})
-
 else()
     message(STATUS "Linux package requires Qt 6 Core, Network, WebSockets and Qml runtime libraries on the target system.")
 endif()
