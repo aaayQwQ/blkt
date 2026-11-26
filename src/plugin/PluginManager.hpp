@@ -30,6 +30,11 @@ public:
     void stop();
     void setGrantedPermissions(const QString &pluginId, Permissions permissions);
 
+    // Explicitly trust a plugin binary by file name and its expected SHA-256 digest.
+    // The plugin directory must not be writable by untrusted users.
+    bool trustPlugin(const QString &fileName, const QByteArray &sha256);
+    void revokePluginTrust(const QString &fileName);
+
 private:
     struct Entry {
         std::unique_ptr<QPluginLoader> loader;
@@ -48,6 +53,7 @@ private:
     void unloadPlugin(const QString &pluginId);
     void unloadAll();
     bool isTrustedPluginPath(const QFileInfo &file) const;
+    bool hasTrustedDigest(const QFileInfo &file) const;
     QString platformSuffix() const;
 
     Core *m_core = nullptr;
@@ -56,6 +62,7 @@ private:
     QTimer m_debounce;
     QHash<QString, QSharedPointer<Entry>> m_plugins;
     QHash<QString, Permissions> m_grants;
+    QHash<QString, QByteArray> m_trustedHashes;
     QSharedPointer<int> m_lifetime = QSharedPointer<int>::create(1);
     bool m_running = false;
 };
