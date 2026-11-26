@@ -51,7 +51,8 @@ jobs:
           host: ${{ matrix.qt_host }}
           target: desktop
           arch: ${{ matrix.qt_arch }}
-          modules: qtwebsockets qtdeclarative
+          modules: qtwebsockets
+          archives: qtdeclarative
           cache: true
 
       - name: Configure
@@ -106,7 +107,8 @@ jobs:
         run: |
           QT_BASE="$(brew --prefix qtbase)"
           QT_WEBSOCKETS="$(brew --prefix qtwebsockets)"
-          cmake -S . -B build -DCMAKE_PREFIX_PATH="$QT_BASE" -DQt6WebSockets_DIR="$QT_WEBSOCKETS/lib/cmake/Qt6WebSockets" -DCMAKE_BUILD_TYPE=Release
+          QT_QML="$(brew --prefix qtdeclarative)"
+          cmake -S . -B build -DCMAKE_PREFIX_PATH="$QT_BASE;$QT_WEBSOCKETS;$QT_QML" -DQt6WebSockets_DIR="$QT_WEBSOCKETS/lib/cmake/Qt6WebSockets" -DQt6Qml_DIR="$QT_QML/lib/cmake/Qt6Qml" -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release --parallel
