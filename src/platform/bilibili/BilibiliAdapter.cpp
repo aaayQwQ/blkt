@@ -114,6 +114,8 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     m_reconnectTimer.setSingleShot(true);
     m_giftTimeout.setSingleShot(true);
     m_giftTimeout.setInterval(RequestTimeoutMs);
+    m_roomDetailsTimeout.setSingleShot(true);
+    m_roomDetailsTimeout.setInterval(RequestTimeoutMs);
 
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         if (m_reply && !m_reply->isFinished())
@@ -130,6 +132,10 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     });
     connect(&m_heartbeat, &QTimer::timeout,
             this, &BilibiliAdapter::sendHeartbeat);
+    connect(&m_roomDetailsTimeout, &QTimer::timeout, this, [this] {
+        if (m_roomDetailsReply && !m_roomDetailsReply->isFinished())
+            m_roomDetailsReply->abort();
+    });
     connect(&m_giftTimeout, &QTimer::timeout, this, [this] {
         if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
             m_giftCatalogReply->abort();
@@ -176,6 +182,7 @@ BilibiliAdapter::~BilibiliAdapter()
     disconnectRoom();
     m_timeout.stop();
     m_giftTimeout.stop();
+    m_roomDetailsTimeout.stop();
     QPointer<QNetworkReply> authReply = m_reply;
     m_reply.clear();
     if (authReply) {
@@ -580,6 +587,84 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
 
 void BilibiliAdapter::requestGiftCatalog()
 {
+    if (!m_roomRequested || m_roomId.isEmpty())
+        return;
+
+    QPointer<QNetworkReply> previousReply = m_roomDetailsReply;
+    m_roomDetailsReply.clear();
+    if (previousReply && !previousReply->isFinished())
+        previousReply->abort();
+
+    QUrl url(QStringLiteral("https://api.live.bilibili.com/room/v1/Room/get_info"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("room_id"), m_roomId);
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Cookie", m_cookie);
+    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Referer", "https://live.bilibili.com/");
+
+    m_roomDetailsReply = m_network.get(request);
+    if (!m_roomDetailsReply) {
+        fetchGiftCatalog(0, 0);
+        return;
+    }
+
+    QNetworkReply *reply = m_roomDetailsReply;
+    reply->setReadBufferSize(MaxResponseBytes);
+    connect(reply, &QIODevice::readyRead, this, [reply] {
+        if (reply->bytesAvailable() > MaxResponseBytes)
+            reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        if (m_roomDetailsReply == reply)
+            handleRoomDetails(reply);
+        else
+            reply->deleteLater();
+    });
+    m_roomDetailsTimeout.start();
+}
+
+void BilibiliAdapter::handleRoomDetails(QNetworkReply *reply)
+{
+    if (!reply)
+        return;
+    if (m_roomDetailsReply != reply) {
+        reply->deleteLater();
+        return;
+    }
+
+    m_roomDetailsTimeout.stop();
+    const QByteArray body = reply->read(MaxResponseBytes + 1);
+    const bool transportOk = reply->error() == QNetworkReply::NoError
+                             && body.size() <= MaxResponseBytes;
+    reply->deleteLater();
+    m_roomDetailsReply.clear();
+
+    if (!m_roomRequested)
+        return;
+
+    int areaId = 0;
+    int parentAreaId = 0;
+    if (transportOk) {
+        QJsonParseError parseError;
+        const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+        const QJsonObject root = document.object();
+        const QJsonObject data = root.value(QStringLiteral("data")).toObject();
+        if (parseError.error == QJsonParseError::NoError
+            && root.value(QStringLiteral("code")).toInt(-1) == 0) {
+            areaId = qBound(0, data.value(QStringLiteral("area_id")).toInt(), 1000000);
+            parentAreaId = qBound(
+                0, data.value(QStringLiteral("parent_area_id")).toInt(), 1000000);
+        }
+    }
+
+    fetchGiftCatalog(areaId, parentAreaId);
+}
+
+void BilibiliAdapter::fetchGiftCatalog(int areaId, int parentAreaId)
+{
     if (!m_core || m_roomId.isEmpty())
         return;
     QPointer<QNetworkReply> previousGiftReply = m_giftCatalogReply;
@@ -592,6 +677,10 @@ void BilibiliAdapter::requestGiftCatalog()
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("platform"), QStringLiteral("web"));
     query.addQueryItem(QStringLiteral("room_id"), m_roomId);
+    if (areaId > 0)
+        query.addQueryItem(QStringLiteral("area_id"), QString::number(areaId));
+    if (parentAreaId > 0)
+        query.addQueryItem(QStringLiteral("area_parent_id"), QString::number(parentAreaId));
     url.setQuery(query);
 
     QNetworkRequest request(url);
@@ -874,15 +963,20 @@ void BilibiliAdapter::disconnectRoom()
     m_authTimeout.stop();
     m_timeout.stop();
     m_giftTimeout.stop();
+    m_roomDetailsTimeout.stop();
 
     QPointer<QNetworkReply> roomReply = m_roomInfoReply;
     QPointer<QNetworkReply> giftReply = m_giftCatalogReply;
+    QPointer<QNetworkReply> detailsReply = m_roomDetailsReply;
     m_roomInfoReply.clear();
     m_giftCatalogReply.clear();
+    m_roomDetailsReply.clear();
     if (roomReply && !roomReply->isFinished())
         roomReply->abort();
     if (giftReply && !giftReply->isFinished())
         giftReply->abort();
+    if (detailsReply && !detailsReply->isFinished())
+        detailsReply->abort();
 
     if (m_webSocket.state() != QAbstractSocket::UnconnectedState)
         m_webSocket.close();
