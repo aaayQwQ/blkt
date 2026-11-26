@@ -188,7 +188,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             [this](QAbstractSocket::SocketError error) {
         if (m_core)
             emit m_core->logMessage(QStringLiteral("Bilibili WebSocket error %1: %2")
-                .arg(static_cast<int>(error)).arg(m_webSocket.errorString()));
+                .arg(static_cast<int>(error)).arg(Guard::cleanLogText(m_webSocket.errorString(), 160)));
     });
 #else
     connect(&m_webSocket,
@@ -557,7 +557,7 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     m_timeout.stop();
     const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QNetworkReply::NetworkError networkError = reply->error();
-    const QString networkErrorText = reply->errorString();
+    const QString networkErrorText = Guard::cleanLogText(reply->errorString(), 160);
     const QByteArray body = reply->read(MaxResponseBytes + 1);
     const bool transportOk = networkError == QNetworkReply::NoError
                              && body.size() <= MaxResponseBytes;
@@ -583,8 +583,8 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
 
     if (parseError.error != QJsonParseError::NoError || apiCode != 0
         || token.isEmpty() || token.size() > 4096 || hosts.isEmpty()) {
-        const QString apiMessage = root.value(QStringLiteral("message")).toString(
-            root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message")));
+        const QString apiMessage = Guard::cleanLogText(root.value(QStringLiteral("message")).toString(
+            root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message"))), 160);
         emit m_core->logMessage(QStringLiteral(
             "Live room information rejected: HTTP %1, API code %2, message '%3', JSON error '%4', host count %5")
             .arg(httpStatus).arg(apiCode).arg(apiMessage.left(160))
@@ -599,11 +599,10 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
         const QJsonObject item = value.toObject();
         const QString candidate = item.value(QStringLiteral("host")).toString();
         const int candidatePort = item.value(QStringLiteral("wss_port")).toInt();
-        static const QRegularExpression hostPattern(
-            QStringLiteral("^[A-Za-z0-9.-]{1,255}$"));
-        if (hostPattern.match(candidate).hasMatch()
+        const QString normalizedHost = candidate.trimmed().toLower();
+        if (Guard::validBilibiliWebSocketHost(normalizedHost)
             && candidatePort > 0 && candidatePort <= 65535) {
-            host = candidate;
+            host = normalizedHost;
             port = candidatePort;
             break;
         }
@@ -820,7 +819,7 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
         QStringList dataKeys = data.keys();
         if (dataKeys.size() > 16)
             dataKeys = dataKeys.mid(0, 16);
-        const QString apiMessage = root.value(QStringLiteral("message")).toString(
+        const QString apiMessage = Guard::cleanLogText(root.value(QStringLiteral("message")).toString(
             root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message")));
         if (m_core) {
             emit m_core->logMessage(QStringLiteral(
