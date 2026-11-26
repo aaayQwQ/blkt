@@ -3,6 +3,8 @@
 #include "../core/Guard.hpp"
 
 #include <QFileInfo>
+#include <QFile>
+#include <QCryptographicHash>
 #include <QLibrary>
 #include <QRegularExpression>
 #include <QSet>
@@ -108,6 +110,43 @@ void PluginManager::setGrantedPermissions(const QString &pluginId, Permissions p
         it.value()->permissions = permissions;
 }
 
+bool PluginManager::trustPlugin(const QString &fileName, const QByteArray &sha256)
+{
+    const QFileInfo nameInfo(fileName);
+    static const QRegularExpression digestPattern(QStringLiteral("^[A-Fa-f0-9]{64}$"));
+    if (fileName.isEmpty() || nameInfo.fileName() != fileName
+        || fileName == QStringLiteral(".") || fileName == QStringLiteral("..")
+        || !digestPattern.match(QString::fromLatin1(sha256)).hasMatch())
+        return false;
+
+    m_trustedHashes.insert(fileName, sha256.toLower());
+    scheduleSync();
+    return true;
+}
+
+void PluginManager::revokePluginTrust(const QString &fileName)
+{
+    m_trustedHashes.remove(fileName);
+    scheduleSync();
+}
+
+bool PluginManager::hasTrustedDigest(const QFileInfo &file) const
+{
+    const auto expected = m_trustedHashes.constFind(file.fileName());
+    if (expected == m_trustedHashes.cend())
+        return false;
+
+    QFile input(file.canonicalFilePath());
+    if (!input.open(QIODevice::ReadOnly))
+        return false;
+
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&input))
+        return false;
+
+    return hash.result().toHex() == expected.value();
+}
+
 void PluginManager::scheduleSync()
 {
     if (m_running)
@@ -144,7 +183,7 @@ void PluginManager::syncDirectory()
     QHash<QString, QFileInfo> candidates;
     const QFileInfoList files = m_directory.entryInfoList(QDir::Files | QDir::NoDotAndDotDot);
     for (const QFileInfo &file : files) {
-        if (!isTrustedPluginPath(file))
+        if (!isTrustedPluginPath(file) || !hasTrustedDigest(file))
             continue;
 
         candidates.insert(file.canonicalFilePath(), file);
@@ -181,8 +220,10 @@ void PluginManager::syncDirectory()
 
 bool PluginManager::loadPlugin(const QFileInfo &file)
 {
-    if (!m_running || !isTrustedPluginPath(file))
+    if (!m_running || !isTrustedPluginPath(file) || !hasTrustedDigest(file)) {
+        emit m_core->logMessage(QStringLiteral("Plugin rejected: missing or mismatched trusted SHA-256"));
         return false;
+    }
 
     auto entry = QSharedPointer<Entry>::create();
     entry->loader = std::make_unique<QPluginLoader>(file.absoluteFilePath());
@@ -201,7 +242,15 @@ bool PluginManager::loadPlugin(const QFileInfo &file)
         return false;
     }
 
-    const QString id = Guard::cleanText(plugin->id(), 128);
+    QString id;
+    try {
+        id = Guard::cleanText(plugin->id(), 128);
+    } catch (...) {
+        entry->loader->unload();
+        emit m_core->logMessage(QStringLiteral("Plugin rejected: id() raised an exception"));
+        return false;
+    }
+
     static const QRegularExpression idPattern(
         QStringLiteral("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"));
     if (!idPattern.match(id).hasMatch() || m_plugins.contains(id)) {
