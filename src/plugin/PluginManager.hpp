@@ -43,6 +43,7 @@ private:
         QPointer<QProcess> process;
         QString id;
         QString canonicalPath;
+        QByteArray digest;
         QByteArray inputBuffer;
         Permissions permissions = 0;
         bool ready = false;
