@@ -171,8 +171,13 @@ BilibiliAdapter::~BilibiliAdapter()
     disconnectRoom();
     m_timeout.stop();
     m_giftTimeout.stop();
-    if (m_reply && !m_reply->isFinished())
-        m_reply->abort();
+    QPointer<QNetworkReply> authReply = m_reply;
+    m_reply.clear();
+    if (authReply) {
+        disconnect(authReply, nullptr, this, nullptr);
+        if (!authReply->isFinished())
+            authReply->abort();
+    }
     clearCredentials();
 }
 
