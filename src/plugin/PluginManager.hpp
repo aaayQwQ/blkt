@@ -79,7 +79,7 @@ private:
     bool m_running = false;
     QElapsedTimer m_clock;
 
-    static constexpr qsizetype MaxPacketBytes = 64 * 1024;
+    static constexpr qsizetype MaxPacketBytes = PluginProtocol::MaxPacketBytes;
     static constexpr int ReadyTimeoutMs = 5000;
     static constexpr int GracefulStopMs = 1000;
 };
