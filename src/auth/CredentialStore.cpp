@@ -113,6 +113,11 @@ bool CredentialStore::loadCookieFile(const QString &filePath, QString *error)
         return false;
     }
 
+    // Windows editors may save UTF-8 text with a BOM. Remove it before
+    // format detection so the first raw Cookie name is not corrupted.
+    if (data.startsWith(QByteArray::fromHex("efbbbf")))
+        data.remove(0, 3);
+
     bool ok = false;
     // Browser extensions commonly export Netscape cookies.txt. A raw Cookie
     // header is also accepted for convenient portable deployments.
