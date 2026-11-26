@@ -54,23 +54,7 @@ Sending messages is denied by default. Explicitly grant it to a plugin that is a
 .\blkt.exe --room 123456 --allow-plugin welcome --plugin-send-message welcome
 ```
 
-A minimal community plugin:
-
-```javascript
-"use strict";
-
-BLKT.on("message", function (event) {
-    BLKT.log(event.user + ": " + event.text);
-});
-
-BLKT.on("gift", function (event) {
-    BLKT.log(event.user + " sent " + event.giftName);
-});
-```
-
-Scripts use the ECMAScript implementation provided by Qt 6 QJSEngine, and the host enables strict mode for every plugin script. Node.js APIs such as `require`, `process`, and filesystem access are not provided. The host exposes no arbitrary HTTP, filesystem, process, shell, or account-cookie API to scripts. Message sending is an explicit capability and is limited to the active room; the core also applies its own validation and rate limit.
-
-Each file is limited to 512 KiB, at most 16 scripts are loaded, and each synchronous evaluation/callback has a 250 ms execution deadline. Repeated callback failures disable that plugin. QJSEngine runs scripts in the host process and is **not an OS security sandbox** or a hard memory quota. Only install code you trust.
+Community plugin authors should distribute their own single-file `.js` packages separately; BLKT does not ship plugin source or examples.
 
 ## Credentials
 
