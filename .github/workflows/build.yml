@@ -71,9 +71,13 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path package/* -DestinationPath BLKT-windows-x64.zip
 
-      - name: Archive portable package (Unix)
-        if: runner.os != 'Windows'
-        run: tar -czf "BLKT-${{ runner.os }}-${{ runner.arch }}.tar.gz" -C package .
+      - name: Archive portable package (macOS)
+        if: runner.os == 'macOS'
+        run: tar -czf "BLKT-macOS-${{ runner.arch }}.tar.gz" -C package .
+
+      - name: Archive Linux package (Qt 6 runtime required)
+        if: runner.os == 'Linux'
+        run: tar -czf "BLKT-Linux-${{ runner.arch }}-Qt6-runtime-required.tar.gz" -C package .
 
       - name: Upload portable package
         uses: actions/upload-artifact@v4
