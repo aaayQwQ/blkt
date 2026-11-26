@@ -7,6 +7,8 @@
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
+#include <QTimer>
 
 namespace blkt {
 
@@ -23,10 +25,20 @@ Core::~Core()
     logout();
 }
 
+// The trusted platform login adapter must validate the remote session before calling this.
 bool Core::login(const QByteArray &cookie, const QString &csrf)
 {
     if (!Guard::validCookie(cookie) || !Guard::validCsrf(csrf)) {
         emit logMessage(QStringLiteral("Authentication rejected: invalid session input"));
+        return false;
+    }
+
+    const QString cookieText = QString::fromLatin1(cookie);
+    const QRegularExpression csrfPattern(
+        QStringLiteral("(?:^|;\\s*)bili_jct=([^;\\s]+)"));
+    const auto match = csrfPattern.match(cookieText);
+    if (!match.hasMatch() || match.captured(1) != csrf) {
+        emit logMessage(QStringLiteral("Authentication rejected: CSRF cookie mismatch"));
         return false;
     }
 
@@ -67,7 +79,9 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
     if (!m_loggedIn || !Guard::validRoomId(roomId))
         return false;
 
-    const QString safeText = Guard::cleanText(text, 500);
+    QString safeText = Guard::cleanText(text, 500);
+    safeText.replace(QChar(u'\n'), QChar(u' '));
+    safeText.replace(QChar(u'\t'), QChar(u' '));
     if (safeText.isEmpty() || safeText.size() > 500)
         return false;
 
@@ -94,17 +108,23 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
                       QStringLiteral("application/x-www-form-urlencoded"));
     request.setRawHeader("Cookie", m_cookie);
     request.setRawHeader("User-Agent", "BLKT/0.1 Qt");
-    request.setTransferTimeout(15000);
 
     QNetworkReply *reply = m_network.post(request, query.toString(QUrl::FullyEncoded).toUtf8());
     reply->setReadBufferSize(MaxReplyBytes);
-    connect(reply, &QIODevice::readyRead, this, [this, reply] {
+
+    auto *timeout = new QTimer(reply);
+    timeout->setSingleShot(true);
+    timeout->setInterval(15000);
+    connect(timeout, &QTimer::timeout, reply, &QNetworkReply::abort);
+    connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
+    connect(reply, &QIODevice::readyRead, this, [reply] {
         if (reply->bytesAvailable() > MaxReplyBytes)
             reply->abort();
     });
     connect(reply, &QNetworkReply::finished, this, [this, reply] {
         consumeReply(reply);
     });
+    timeout->start();
 
     emit logMessage(QStringLiteral("Danmaku request queued"));
     return true;
