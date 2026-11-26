@@ -64,6 +64,7 @@ target_link_libraries(blkt_plugin_budget_smoke PRIVATE
     Qt6::Core Qt6::Network Qt6::Qml Threads::Threads
 )
 add_test(NAME plugin_event_execution_budget COMMAND blkt_plugin_budget_smoke)
+set_tests_properties(plugin_event_execution_budget PROPERTIES TIMEOUT 5)
 
 if(APPLE)
     install(TARGETS blkt BUNDLE DESTINATION .)
