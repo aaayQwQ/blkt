@@ -1,3 +1,5 @@
+#include "../IPlugin.hpp"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -8,8 +10,8 @@
 
 namespace {
 
-constexpr int ProtocolVersion = 1;
-constexpr qsizetype MaxPacketBytes = 64 * 1024;
+constexpr int ProtocolVersion = blkt::PluginProtocol::Version;
+constexpr qsizetype MaxPacketBytes = blkt::PluginProtocol::MaxPacketBytes;
 
 bool readPacket(QJsonObject &packet)
 {
