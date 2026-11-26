@@ -166,6 +166,7 @@ BilibiliAdapter::~BilibiliAdapter()
 {
     disconnectRoom();
     m_timeout.stop();
+    m_giftTimeout.stop();
     if (m_reply && !m_reply->isFinished())
         m_reply->abort();
     clearCredentials();
@@ -213,13 +214,16 @@ bool BilibiliAdapter::authenticate(const QByteArray &cookie, const QString &csrf
     }
 
     m_reply->setReadBufferSize(MaxResponseBytes);
-    connect(m_reply, &QIODevice::readyRead, this, [this] {
-        if (m_reply && m_reply->bytesAvailable() > MaxResponseBytes)
-            m_reply->abort();
+    QNetworkReply *authReply = m_reply;
+    connect(authReply, &QIODevice::readyRead, this, [authReply] {
+        if (authReply->bytesAvailable() > MaxResponseBytes)
+            authReply->abort();
     });
-    connect(m_reply, &QNetworkReply::finished, this, [this] {
-        if (m_reply)
-            finishAuthentication(m_reply);
+    connect(authReply, &QNetworkReply::finished, this, [this, authReply] {
+        if (m_reply == authReply)
+            finishAuthentication(authReply);
+        else
+            authReply->deleteLater();
     });
     m_timeout.start();
     return true;
@@ -230,6 +234,14 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
     if (!reply)
         return;
 
+    if (m_reply != reply) {
+        reply->deleteLater();
+        return;
+    }
+    if (m_roomInfoReply != reply) {
+        reply->deleteLater();
+        return;
+    }
     m_timeout.stop();
     const QByteArray body = reply->read(MaxResponseBytes + 1);
     const bool responseTooLarge = body.size() > MaxResponseBytes;
@@ -349,6 +361,10 @@ void BilibiliAdapter::requestDanmuInfo()
     if (!m_roomRequested || m_roomId.isEmpty())
         return;
 
+    if (m_roomInfoReply && !m_roomInfoReply->isFinished())
+        m_roomInfoReply->abort();
+    m_roomInfoReply.clear();
+
     QUrl url(QStringLiteral("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo"));
     QUrlQuery query;
     const QMap<QString, QString> parameters = signWbiParameters({
@@ -371,14 +387,17 @@ void BilibiliAdapter::requestDanmuInfo()
         return;
     }
 
-    m_roomInfoReply->setReadBufferSize(MaxResponseBytes);
-    connect(m_roomInfoReply, &QIODevice::readyRead, this, [this] {
-        if (m_roomInfoReply && m_roomInfoReply->bytesAvailable() > MaxResponseBytes)
-            m_roomInfoReply->abort();
+    QNetworkReply *roomReply = m_roomInfoReply;
+    roomReply->setReadBufferSize(MaxResponseBytes);
+    connect(roomReply, &QIODevice::readyRead, this, [roomReply] {
+        if (roomReply->bytesAvailable() > MaxResponseBytes)
+            roomReply->abort();
     });
-    connect(m_roomInfoReply, &QNetworkReply::finished, this, [this] {
-        if (m_roomInfoReply)
-            handleDanmuInfo(m_roomInfoReply);
+    connect(roomReply, &QNetworkReply::finished, this, [this, roomReply] {
+        if (m_roomInfoReply == roomReply)
+            handleDanmuInfo(roomReply);
+        else
+            roomReply->deleteLater();
     });
     m_timeout.start();
 }
@@ -459,6 +478,7 @@ void BilibiliAdapter::requestGiftCatalog()
         return;
     if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
         m_giftCatalogReply->abort();
+    m_giftCatalogReply.clear();
 
     QUrl url(QStringLiteral(
         "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList"));
@@ -478,15 +498,17 @@ void BilibiliAdapter::requestGiftCatalog()
         return;
     }
 
-    m_giftCatalogReply->setReadBufferSize(MaxGiftCatalogBytes);
-    connect(m_giftCatalogReply, &QIODevice::readyRead, this, [this] {
-        if (m_giftCatalogReply
-            && m_giftCatalogReply->bytesAvailable() > MaxGiftCatalogBytes)
-            m_giftCatalogReply->abort();
+    QNetworkReply *giftReply = m_giftCatalogReply;
+    giftReply->setReadBufferSize(MaxGiftCatalogBytes);
+    connect(giftReply, &QIODevice::readyRead, this, [giftReply] {
+        if (giftReply->bytesAvailable() > MaxGiftCatalogBytes)
+            giftReply->abort();
     });
-    connect(m_giftCatalogReply, &QNetworkReply::finished, this, [this] {
-        if (m_giftCatalogReply)
-            handleGiftCatalog(m_giftCatalogReply);
+    connect(giftReply, &QNetworkReply::finished, this, [this, giftReply] {
+        if (m_giftCatalogReply == giftReply)
+            handleGiftCatalog(giftReply);
+        else
+            giftReply->deleteLater();
     });
     m_giftTimeout.start();
 }
@@ -496,6 +518,10 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
     if (!reply)
         return;
 
+    if (m_giftCatalogReply != reply) {
+        reply->deleteLater();
+        return;
+    }
     m_giftTimeout.stop();
     const QByteArray body = reply->read(MaxGiftCatalogBytes + 1);
     const bool transportOk = reply->error() == QNetworkReply::NoError
