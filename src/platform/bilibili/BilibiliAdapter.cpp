@@ -160,6 +160,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     connect(&m_webSocket, &QWebSocket::disconnected, this, [this] {
         m_heartbeat.stop();
         m_authTimeout.stop();
+        const bool wasRoomAuthenticated = m_roomConnected;
         m_roomConnected = false;
         if (m_core && !m_roomId.isEmpty())
             m_core->setRoomConnection(m_roomId, false);
@@ -171,7 +172,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
                 "Bilibili WebSocket disconnected: room %1, close code %2, room-authenticated %3")
                 .arg(m_roomId.isEmpty() ? QStringLiteral("unknown") : m_roomId)
                 .arg(closeCode)
-                .arg(m_roomConnected ? QStringLiteral("yes") : QStringLiteral("no"));
+                .arg(wasRoomAuthenticated ? QStringLiteral("yes") : QStringLiteral("no"));
             if (!closeReason.isEmpty())
                 detail += QStringLiteral(", reason '%1'").arg(closeReason);
             if (m_webSocket.error() != QAbstractSocket::UnknownSocketError) {
@@ -926,6 +927,11 @@ void BilibiliAdapter::sendAuthPacket()
     // requires Brotli, which is deliberately not introduced as a new runtime DLL.
     auth.insert(QStringLiteral("protover"), 2);
     auth.insert(QStringLiteral("buvid"), m_buvid3);
+    auth.insert(QStringLiteral("support_ack"), true);
+    const quint32 queueId = QRandomGenerator::global()->generate();
+    auth.insert(QStringLiteral("queue_uuid"),
+                QString::number(queueId, 16).rightJustified(8, QLatin1Char('0')));
+    auth.insert(QStringLiteral("scene"), QString());
     auth.insert(QStringLiteral("platform"), QStringLiteral("web"));
     auth.insert(QStringLiteral("type"), 2);
     auth.insert(QStringLiteral("key"), m_danmuToken);
@@ -1005,8 +1011,9 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
                 const bool accepted = error.error == QJsonParseError::NoError && authCode == 0;
                 if (m_core)
                     emit m_core->logMessage(QStringLiteral(
-                        "Bilibili WebSocket authentication reply: code %1, JSON status %2")
+                        "Bilibili WebSocket authentication reply: code %1, message '%2', JSON status %3")
                         .arg(authCode)
+                        .arg(Guard::cleanLogText(authMessage, 160))
                         .arg(error.error == QJsonParseError::NoError
                                  ? QStringLiteral("valid") : error.errorString()));
                 m_authTimeout.stop();
