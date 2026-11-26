@@ -270,7 +270,10 @@ void Core::ingestMessage(const MessageEvent &event)
         return;
     }
     emit messageReceived(safe);
-    emit logMessage(QStringLiteral("Incoming danmaku accepted and dispatched to plugin manager"));
+    if (!m_loggedFirstDanmakuDispatch) {
+        m_loggedFirstDanmakuDispatch = true;
+        emit logMessage(QStringLiteral("First incoming danmaku accepted and dispatched to plugin manager"));
+    }
 }
 
 void Core::ingestGift(const GiftEvent &event)
