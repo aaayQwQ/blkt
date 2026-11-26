@@ -54,8 +54,31 @@ Sending messages is denied by default. Explicitly grant it to a plugin that is a
 .\blkt.exe --room 123456 --allow-plugin welcome --plugin-send-message welcome
 ```
 
+Each event dispatch has a shared 250 ms execution budget and a 64-callback cap. A plugin can register at most 8 handlers for each event. A plugin that exhausts the event time budget is disabled.
+
 Community plugin authors should distribute their own single-file `.js` packages separately; BLKT does not ship plugin source or examples.
 
 ## Credentials
 
-Cookie is read-only and must be provisioned before startup. It is not included in source or release artifacts.
+Cookie is read-only and must be provisioned before startup. It is not included in source or release artifacts. For Netscape exports, BLKT imports only `SESSDATA`, `bili_jct`, and `buvid3` from the shared Bilibili domain at the root path when the entry is not expired. Other cookie names and host-only or path-scoped entries are ignored. Raw Cookie headers are filtered to the same three names. All authenticated endpoints use HTTPS/WSS.
+
+## Windows portable runtime layout
+
+The Windows package keeps the executable and ordinary Qt runtime DLLs directly in `bin/`. Unused Qt Quick/OpenGL runtime components, translations, and unrelated plugin families are excluded.
+
+```text
+bin/
+  blkt.exe
+  Qt6Core.dll
+  Qt6Network.dll
+  Qt6WebSockets.dll
+  Qt6Qml.dll
+  ...
+  qt.conf
+  tls/
+    <Qt TLS backend plugin DLL>
+  plugins/
+    <community JavaScript files only>
+```
+
+Qt requires dynamically loaded plugins to remain in a plugin-type subdirectory. Therefore the required TLS backend stays in `bin/tls/`; the generated Qt runtime plugin tree is removed. The top-level `bin/plugins/` directory is reserved for community JavaScript files and contains no Qt runtime plugin DLLs.
