@@ -56,7 +56,7 @@ void Core::abortActiveRequests()
 {
     const auto replies = m_activeReplies;
     for (QNetworkReply *reply : replies) {
-        if (reply && reply->isRunning())
+        if (reply && !reply->isFinished())
             reply->abort();
     }
     m_activeReplies.clear();
