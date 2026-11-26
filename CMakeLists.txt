@@ -6,6 +6,8 @@ project(BLKT
     LANGUAGES CXX
 )
 
+include(GNUInstallDirs)
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -40,6 +42,14 @@ add_executable(blkt
 
 if(WIN32)
     set_target_properties(blkt PROPERTIES WIN32_EXECUTABLE TRUE)
+elseif(APPLE)
+    set_target_properties(blkt PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "BLKT"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "org.blkt.desktop"
+        MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    )
 endif()
 
 set_target_properties(blkt PROPERTIES
@@ -75,9 +85,17 @@ add_custom_command(TARGET blkt POST_BUILD
 add_executable(blkt_echo_plugin
     src/plugin/example/echo_worker.cpp
 )
-set_target_properties(blkt_echo_plugin PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/plugins"
-)
+if(APPLE)
+    set_target_properties(blkt_echo_plugin PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/blkt.app/Contents/MacOS/plugins"
+    )
+else()
+    set_target_properties(blkt_echo_plugin PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/plugins"
+    )
+endif()
+add_dependencies(blkt_echo_plugin blkt)
+
 target_link_libraries(blkt_echo_plugin PRIVATE Qt6::Core)
 
 if(WIN32)
@@ -121,3 +139,39 @@ add_test(
     NAME security_guard_validation
     COMMAND blkt_guard_smoke
 )
+
+# Install a self-contained portable folder. The user supplies cookie.txt next
+# to the executable; it is intentionally not included in the package.
+if(APPLE)
+    install(TARGETS blkt BUNDLE DESTINATION .)
+    install(TARGETS blkt_echo_plugin
+        RUNTIME DESTINATION "blkt.app/Contents/MacOS/plugins"
+    )
+else()
+    install(TARGETS blkt RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+    install(TARGETS blkt_echo_plugin
+        RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}/plugins"
+    )
+endif()
+
+# Deploy Qt runtime libraries for the host and independent worker.
+# qt_deploy_runtime_dependencies is available from Qt 6.3.
+set(deploy_script "${CMAKE_CURRENT_BINARY_DIR}/deploy-$<CONFIG>.cmake")
+file(GENERATE OUTPUT "${deploy_script}" CONTENT "
+include(\"${QT_DEPLOY_SUPPORT}\")
+if(APPLE)
+    qt_deploy_runtime_dependencies(
+        EXECUTABLE \"$<TARGET_FILE_NAME:blkt>.app\"
+        ADDITIONAL_EXECUTABLES \"$<TARGET_FILE_NAME:blkt>.app/Contents/MacOS/plugins/$<TARGET_FILE_NAME:blkt_echo_plugin>\"
+        VERBOSE
+    )
+else()
+    qt_deploy_runtime_dependencies(
+        EXECUTABLE \"\${QT_DEPLOY_BIN_DIR}/$<TARGET_FILE_NAME:blkt>\"
+        ADDITIONAL_EXECUTABLES \"\${QT_DEPLOY_BIN_DIR}/plugins/$<TARGET_FILE_NAME:blkt_echo_plugin>\"
+        GENERATE_QT_CONF
+        VERBOSE
+    )
+endif()
+")
+install(SCRIPT "${deploy_script}")
