@@ -9,6 +9,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QRandomGenerator>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -105,6 +106,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     m_heartbeat.setInterval(HeartbeatIntervalMs);
     m_authTimeout.setSingleShot(true);
     m_authTimeout.setInterval(RequestTimeoutMs);
+    m_reconnectTimer.setSingleShot(true);
 
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         if (m_reply && !m_reply->isFinished())
@@ -112,6 +114,8 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
         if (m_roomInfoReply && !m_roomInfoReply->isFinished())
             m_roomInfoReply->abort();
     });
+    connect(&m_reconnectTimer, &QTimer::timeout,
+            this, &BilibiliAdapter::requestDanmuInfo);
     connect(&m_heartbeat, &QTimer::timeout,
             this, &BilibiliAdapter::sendHeartbeat);
     connect(&m_authTimeout, &QTimer::timeout, this, [this] {
@@ -127,8 +131,11 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
         m_heartbeat.stop();
         m_authTimeout.stop();
         m_roomConnected = false;
-        if (m_roomRequested)
-            emit m_core->logMessage(QStringLiteral("Bilibili live connection disconnected"));
+        if (m_roomRequested) {
+            if (m_core)
+                emit m_core->logMessage(QStringLiteral("Bilibili live connection disconnected; reconnect scheduled"));
+            scheduleReconnect();
+        }
     });
     connect(&m_webSocket, &QWebSocket::errorOccurred, this,
             [this](QAbstractSocket::SocketError) {
@@ -304,6 +311,7 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
 
     if (!transportOk) {
         emit m_core->logMessage(QStringLiteral("Live room information request failed"));
+        scheduleReconnect();
         return;
     }
 
@@ -318,6 +326,7 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
         || root.value(QStringLiteral("code")).toInt(-1) != 0
         || token.isEmpty() || token.size() > 4096 || hosts.isEmpty()) {
         emit m_core->logMessage(QStringLiteral("Live room information response was invalid"));
+        scheduleReconnect();
         return;
     }
 
@@ -327,7 +336,9 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
         const QJsonObject item = value.toObject();
         const QString candidate = item.value(QStringLiteral("host")).toString();
         const int candidatePort = item.value(QStringLiteral("wss_port")).toInt();
-        if (!candidate.isEmpty() && candidate.size() <= 255
+        static const QRegularExpression hostPattern(
+            QStringLiteral("^[A-Za-z0-9.-]{1,255}$"));
+        if (hostPattern.match(candidate).hasMatch()
             && candidatePort > 0 && candidatePort <= 65535) {
             host = candidate;
             port = candidatePort;
@@ -337,6 +348,7 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
 
     if (host.isEmpty()) {
         emit m_core->logMessage(QStringLiteral("No secure live WebSocket endpoint was returned"));
+        scheduleReconnect();
         return;
     }
 
@@ -416,9 +428,12 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
                 m_authTimeout.stop();
                 if (accepted) {
                     m_roomConnected = true;
+                    m_reconnectAttempt = 0;
+                    m_reconnectTimer.stop();
                     m_heartbeat.start();
                     emit m_core->logMessage(QStringLiteral("Connected to Bilibili live room"));
                 } else {
+                    m_roomRequested = false;
                     m_webSocket.close();
                     emit m_core->logMessage(QStringLiteral("Bilibili rejected live room authentication"));
                 }
@@ -483,9 +498,22 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
     }
 }
 
+void BilibiliAdapter::scheduleReconnect()
+{
+    if (!m_roomRequested || !m_authenticated || m_reconnectTimer.isActive())
+        return;
+    const int exponent = qMin(m_reconnectAttempt, 5);
+    const int baseDelay = qMin(1000 * (1 << exponent), 30000);
+    const int jitter = QRandomGenerator::global()->bounded(1000);
+    ++m_reconnectAttempt;
+    m_reconnectTimer.start(baseDelay + jitter);
+}
+
 void BilibiliAdapter::disconnectRoom()
 {
     m_roomRequested = false;
+    m_reconnectTimer.stop();
+    m_reconnectAttempt = 0;
     m_roomConnected = false;
     m_heartbeat.stop();
     m_authTimeout.stop();
