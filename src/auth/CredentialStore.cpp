@@ -1,6 +1,6 @@
 #include "CredentialStore.hpp"
 
-#include <QFile>
+#include <QFile>\n#include <QHash>
 #include <QRegularExpression>
 #include <QStringList>
 #include <QVector>
