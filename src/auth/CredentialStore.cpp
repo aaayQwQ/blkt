@@ -2,6 +2,7 @@
 
 #include <QFile>
 #include <QHash>
+#include <QFileInfo>
 
 namespace blkt {
 namespace {
@@ -38,12 +39,19 @@ bool CredentialStore::loadCookieFile(const QString &filePath, QString *error)
 {
     clear();
 
-    QFile file(filePath);
-    if (!file.exists()) {
+    const QFileInfo fileInfo(filePath);
+    if (!fileInfo.exists()) {
         if (error)
             *error = QStringLiteral("cookie.txt was not found beside the application");
         return false;
     }
+    if (!fileInfo.isFile() || fileInfo.isSymLink()) {
+        if (error)
+            *error = QStringLiteral("cookie.txt must be a regular file, not a symbolic link");
+        return false;
+    }
+
+    QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly)) {
         if (error)
             *error = QStringLiteral("cookie.txt could not be opened for reading");
@@ -56,7 +64,14 @@ bool CredentialStore::loadCookieFile(const QString &filePath, QString *error)
     }
 
     QByteArray data = file.read(MaxCookieFileBytes + 1);
+    const bool readOk = file.error() == QFileDevice::NoError;
     file.close();
+    if (!readOk) {
+        data.fill('\0');
+        if (error)
+            *error = QStringLiteral("cookie.txt could not be read completely");
+        return false;
+    }
     if (data.size() > MaxCookieFileBytes) {
         data.fill('\0');
         if (error)
