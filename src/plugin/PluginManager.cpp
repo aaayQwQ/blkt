@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QRegularExpression>
+#include <QLibraryInfo>
 #include <QSet>
 #include <QProcessEnvironment>
 #include <QTextStream>
@@ -350,8 +351,14 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     if (!systemRoot.isEmpty()) {
         environment.insert(QStringLiteral("SystemRoot"), systemRoot);
         environment.insert(QStringLiteral("WINDIR"), systemRoot);
+        const QString systemPath =
+            QDir(systemRoot).filePath(QStringLiteral("System32"));
+        const QString qtBinaryPath =
+            QLibraryInfo::path(QLibraryInfo::BinariesPath);
         environment.insert(QStringLiteral("PATH"),
-                           QDir(systemRoot).filePath(QStringLiteral("System32")));
+                           qtBinaryPath.isEmpty()
+                               ? systemPath
+                               : systemPath + QLatin1Char(';') + qtBinaryPath);
     }
 #else
     environment.insert(QStringLiteral("PATH"), QStringLiteral("/usr/bin:/bin"));
