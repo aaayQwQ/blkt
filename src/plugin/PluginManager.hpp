@@ -47,7 +47,6 @@ private:
         bool ready = false;
         bool stopping = false;
         QTimer *readyTimer = nullptr;
-        QTimer *stopTimer = nullptr;
     };
 
     void scheduleSync();
