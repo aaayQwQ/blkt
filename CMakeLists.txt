@@ -84,6 +84,7 @@ if(WIN32)
                 --no-quick-import
                 --no-quick
                 --no-opengl
+                --include-soft-plugins
                 --skip-plugin-types
                 generic,imageformats,networkinformation,platforms,qmltooling,styles
         )
@@ -100,13 +101,16 @@ if(WIN32)
     # generated Qt runtime plugin tree is removed; the top-level plugins
     # directory is recreated empty for BLKT's community JavaScript scripts.
     install(CODE [[
-        set(_blkt_bin "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin")
-        set(_blkt_plugins "${_blkt_bin}/plugins")
-        if(NOT EXISTS "${_blkt_plugins}/tls")
-            message(FATAL_ERROR "Required Qt TLS plugin was not deployed")
+        set(_blkt_prefix "$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}")
+        set(_blkt_bin "${_blkt_prefix}/bin")
+        # qt_generate_deploy_app_script uses --dir <prefix> and --plugindir
+        # plugins, so windeployqt places plugin types at <prefix>/plugins.
+        set(_blkt_plugins "${_blkt_prefix}/plugins")
+        file(GLOB _blkt_tls_files "${_blkt_plugins}/tls/*.dll")
+        if(NOT _blkt_tls_files)
+            message(FATAL_ERROR "Required Qt TLS backend DLL was not deployed")
         endif()
         file(MAKE_DIRECTORY "${_blkt_bin}/tls")
-        file(GLOB _blkt_tls_files "${_blkt_plugins}/tls/*")
         foreach(_blkt_tls_file IN LISTS _blkt_tls_files)
             get_filename_component(_blkt_tls_name "${_blkt_tls_file}" NAME)
             file(REMOVE "${_blkt_bin}/tls/${_blkt_tls_name}")
@@ -115,7 +119,8 @@ if(WIN32)
         if(EXISTS "${_blkt_plugins}")
             file(REMOVE_RECURSE "${_blkt_plugins}")
         endif()
-        file(MAKE_DIRECTORY "${_blkt_plugins}")
+        set(_blkt_community_plugins "${_blkt_bin}/plugins")
+        file(MAKE_DIRECTORY "${_blkt_community_plugins}")
         file(WRITE "${_blkt_bin}/qt.conf" "[Paths]\nPlugins=.\n")
     ]])
 elseif(APPLE)
