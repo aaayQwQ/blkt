@@ -617,11 +617,6 @@ void BilibiliAdapter::sendAuthPacket()
     auth.insert(QStringLiteral("buvid"), m_buvid3);
     auth.insert(QStringLiteral("platform"), QStringLiteral("web"));
     auth.insert(QStringLiteral("type"), 2);
-    auth.insert(QStringLiteral("support_ack"), true);
-    auth.insert(QStringLiteral("queue_uuid"),
-                QString::number(QRandomGenerator::global()->generate(), 16)
-                    .rightJustified(8, QLatin1Char('0')));
-    auth.insert(QStringLiteral("scene"), QString());
     auth.insert(QStringLiteral("key"), m_danmuToken);
 
     const QByteArray packet = makePacket(
