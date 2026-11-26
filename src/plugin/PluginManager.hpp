@@ -49,6 +49,8 @@ private:
         bool stopping = false;
         qint64 requestWindowStartMs = 0;
         int requestCount = 0;
+        qint64 packetWindowStartMs = 0;
+        int packetCount = 0;
         QTimer *readyTimer = nullptr;
     };
 
