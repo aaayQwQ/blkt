@@ -238,10 +238,6 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
         reply->deleteLater();
         return;
     }
-    if (m_roomInfoReply != reply) {
-        reply->deleteLater();
-        return;
-    }
     m_timeout.stop();
     const QByteArray body = reply->read(MaxResponseBytes + 1);
     const bool responseTooLarge = body.size() > MaxResponseBytes;
@@ -406,6 +402,10 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
 {
     if (!reply)
         return;
+    if (m_roomInfoReply != reply) {
+        reply->deleteLater();
+        return;
+    }
 
     m_timeout.stop();
     const QByteArray body = reply->read(MaxResponseBytes + 1);
@@ -746,6 +746,7 @@ void BilibiliAdapter::disconnectRoom()
     m_roomConnected = false;
     m_heartbeat.stop();
     m_authTimeout.stop();
+    m_giftTimeout.stop();
 
     if (m_roomInfoReply && !m_roomInfoReply->isFinished())
         m_roomInfoReply->abort();
