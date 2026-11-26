@@ -491,8 +491,7 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
         bool totalCoinOk = false;
         quint64 totalCoin = jsonUnsigned(data.value(QStringLiteral("total_coin")), &totalCoinOk);
         const int count = data.value(QStringLiteral("num")).toInt();
-        if (!giftIdOk || giftId == 0 || count <= 0
-            || count > static_cast<int>(std::numeric_limits<quint32>::max()))
+        if (!giftIdOk || giftId == 0 || count <= 0)
             return;
 
         event.giftId = giftId;
