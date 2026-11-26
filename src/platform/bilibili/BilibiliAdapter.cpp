@@ -436,6 +436,11 @@ void BilibiliAdapter::handleRoomInit(QNetworkReply *reply)
         m_giftCatalogLoaded = false;
     m_roomId = resolvedRoomId;
     m_roomResolved = true;
+    // Move the core's room scope to the canonical room ID before the gift
+    // catalog request can complete, so a later auth-success transition does
+    // not clear a catalog that was just loaded.
+    if (m_core)
+        m_core->setRoomConnection(m_roomId, false);
     requestDanmuInfo();
 }
 
