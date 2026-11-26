@@ -263,7 +263,11 @@ bool BilibiliAdapter::authenticate(const QByteArray &cookie, const QString &csrf
     request.setRawHeader("Cookie", m_cookie);
     request.setRawHeader("User-Agent",
                          "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Accept", "application/json, text/plain, */*");
+    request.setRawHeader("Origin", "https://www.bilibili.com");
     request.setRawHeader("Referer", "https://www.bilibili.com/");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
 
     m_reply = m_network.get(request);
     if (!m_reply) {
@@ -299,38 +303,80 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
         return;
     }
     m_timeout.stop();
+    const int httpStatus = reply->attribute(
+        QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = Guard::cleanLogText(reply->errorString(), 160);
     const QByteArray body = reply->read(MaxResponseBytes + 1);
     const bool responseTooLarge = body.size() > MaxResponseBytes;
-    const bool transportOk = reply->error() == QNetworkReply::NoError
-                             && !responseTooLarge;
+    const bool transportOk = networkError == QNetworkReply::NoError
+                             && !responseTooLarge
+                             && (httpStatus == 0 || (httpStatus >= 200 && httpStatus < 300));
     reply->deleteLater();
     m_reply.clear();
 
     if (!transportOk) {
         clearCredentials();
-        emit authenticationFinished(false, {}, 0,
-                                    QStringLiteral("Bilibili authentication request failed"));
+        QString reason = QStringLiteral(
+            "Bilibili authentication transport failed (network error %1, HTTP %2)")
+            .arg(static_cast<int>(networkError))
+            .arg(httpStatus > 0 ? QString::number(httpStatus) : QStringLiteral("unknown"));
+        if (!networkErrorText.isEmpty())
+            reason += QStringLiteral(": %1").arg(networkErrorText);
+        if (responseTooLarge)
+            reason += QStringLiteral(" (response exceeded size limit)");
+        emit authenticationFinished(false, {}, 0, reason);
         return;
     }
 
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        clearCredentials();
+        emit authenticationFinished(false, {}, 0,
+            QStringLiteral("Bilibili authentication returned invalid JSON (HTTP %1)")
+                .arg(httpStatus > 0 ? QString::number(httpStatus) : QStringLiteral("unknown")));
+        return;
+    }
+
     const QJsonObject root = document.object();
     const QJsonObject data = root.value(QStringLiteral("data")).toObject();
-    const bool apiOk = parseError.error == QJsonParseError::NoError
-                       && root.value(QStringLiteral("code")).toInt(-1) == 0;
-    const bool loggedIn = apiOk
-                          && data.value(QStringLiteral("isLogin")).toBool(false);
+    const int apiCode = root.value(QStringLiteral("code")).toInt(-1);
+    if (apiCode != 0) {
+        const QString apiMessage = Guard::cleanLogText(
+            root.value(QStringLiteral("message")).toString(
+                root.value(QStringLiteral("msg")).toString()), 160);
+        QString reason = QStringLiteral("Bilibili rejected the login session (API code %1)")
+                             .arg(apiCode);
+        if (!apiMessage.isEmpty())
+            reason += QStringLiteral(": %1").arg(apiMessage);
+        clearCredentials();
+        emit authenticationFinished(false, {}, 0, reason);
+        return;
+    }
+
+    if (!data.value(QStringLiteral("isLogin")).toBool(false)) {
+        clearCredentials();
+        emit authenticationFinished(false, {}, 0,
+            QStringLiteral("Bilibili reports isLogin=false; refresh cookie.txt and export the current account session"));
+        return;
+    }
+
     bool idOk = false;
     const quint64 mid = jsonUnsigned(data.value(QStringLiteral("mid")), &idOk);
     const QString name = Guard::cleanText(
         data.value(QStringLiteral("uname")).toString(), 64);
-
-    if (!loggedIn || !idOk || mid == 0 || name.isEmpty()
-        || !m_core || !m_core->login(m_cookie, m_csrf)) {
+    if (!idOk || mid == 0 || name.isEmpty()) {
         clearCredentials();
         emit authenticationFinished(false, {}, 0,
-                                    QStringLiteral("Cookie is invalid, expired, or account validation failed"));
+            QStringLiteral("Bilibili login response is missing a valid account ID or name"));
+        return;
+    }
+
+    if (!m_core || !m_core->login(m_cookie, m_csrf)) {
+        clearCredentials();
+        emit authenticationFinished(false, {}, 0,
+            QStringLiteral("Bilibili session was validated remotely but the local core rejected it"));
         return;
     }
 
@@ -339,6 +385,9 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
     m_wbiMixinKey = buildWbiMixinKey(data.value(QStringLiteral("wbi_img")).toObject());
     m_authenticated = true;
 
+    if (m_wbiMixinKey.isEmpty() && m_core)
+        emit m_core->logMessage(QStringLiteral(
+            "Bilibili account login succeeded, but WBI credentials are missing; live-room connection is unavailable until refreshed"));
     emit authenticationFinished(true, m_accountName, m_accountId,
                                 QStringLiteral("Account authenticated"));
 }
