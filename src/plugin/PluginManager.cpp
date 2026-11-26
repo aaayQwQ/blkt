@@ -339,18 +339,28 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     });
 
     process->setProcessChannelMode(QProcess::SeparateChannels);
+
+    // Do not leak host environment variables (tokens, proxy credentials, etc.)
+    // into a third-party worker.
+    QProcessEnvironment environment;
+#if defined(Q_OS_WIN)
+    const QString systemRoot = qEnvironmentVariable("SystemRoot");
+    if (!systemRoot.isEmpty()) {
+        environment.insert(QStringLiteral("SystemRoot"), systemRoot);
+        environment.insert(QStringLiteral("WINDIR"), systemRoot);
+        environment.insert(QStringLiteral("PATH"),
+                           QDir(systemRoot).filePath(QStringLiteral("System32")));
+    }
+#else
+    environment.insert(QStringLiteral("PATH"), QStringLiteral("/usr/bin:/bin"));
+    const QString lang = qEnvironmentVariable("LANG");
+    if (!lang.isEmpty())
+        environment.insert(QStringLiteral("LANG"), lang);
+#endif
+    process->setProcessEnvironment(environment);
     process->start(file.canonicalFilePath(),
                    {QStringLiteral("--blkt-plugin-worker"),
                     QStringLiteral("--blkt-protocol=1")});
-    if (!process->waitForStarted(0)) {
-        // The asynchronous error handler owns final cleanup.
-        if (process->state() == QProcess::NotRunning) {
-            m_plugins.remove(id);
-            process->deleteLater();
-            delete entry;
-            return false;
-        }
-    }
     entry->readyTimer->start(ReadyTimeoutMs);
     return true;
 }
