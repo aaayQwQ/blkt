@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QSet>
+#include <optional>
 
 namespace blkt {
 
