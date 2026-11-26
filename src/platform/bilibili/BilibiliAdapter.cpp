@@ -378,7 +378,8 @@ void BilibiliAdapter::requestDanmuInfo()
     QUrlQuery query;
     const QMap<QString, QString> parameters = signWbiParameters({
         {QStringLiteral("id"), m_roomId},
-        {QStringLiteral("type"), QStringLiteral("0")}
+        {QStringLiteral("type"), QStringLiteral("0")},
+        {QStringLiteral("web_location"), QStringLiteral("444.8")}
     });
     for (auto it = parameters.cbegin(); it != parameters.cend(); ++it)
         query.addQueryItem(it.key(), it.value());
