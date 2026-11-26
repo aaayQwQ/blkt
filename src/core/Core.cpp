@@ -42,6 +42,7 @@ bool Core::login(const QByteArray &cookie, const QString &csrf)
         return false;
     }
 
+    // Replacing a session cancels requests created with the previous credentials.
     clearSession();
     m_cookie = cookie;
     m_csrf = csrf;
@@ -65,9 +66,9 @@ void Core::clearSession()
 {
     abortActiveRequests();
     if (!m_cookie.isEmpty())
-        m_cookie.fill('\0');
+        m_cookie.fill('\\0');
     m_cookie.clear();
-    m_csrf.fill(QChar(u'\0'));
+    m_csrf.fill(QChar(u'\\0'));
     m_csrf.clear();
     m_loggedIn = false;
 }
@@ -91,8 +92,8 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
         return false;
 
     QString safeText = Guard::cleanText(text, 500);
-    safeText.replace(QChar(u'\n'), QChar(u' '));
-    safeText.replace(QChar(u'\t'), QChar(u' '));
+    safeText.replace(QChar(u'\\n'), QChar(u' '));
+    safeText.replace(QChar(u'\\t'), QChar(u' '));
     if (safeText.isEmpty() || safeText.size() > 500)
         return false;
 
@@ -150,10 +151,13 @@ void Core::consumeReply(QNetworkReply *reply)
 {
     if (!reply)
         return;
+
     m_activeReplies.remove(reply);
     const QByteArray body = reply->read(MaxReplyBytes + 1);
     const bool tooLarge = body.size() > MaxReplyBytes;
-    const bool transportOk = reply->error() == QNetworkReply::NoError && !tooLarge;
+    const bool transportOk = m_loggedIn
+                             && reply->error() == QNetworkReply::NoError
+                             && !tooLarge;
 
     if (transportOk) {
         QJsonParseError parseError;
@@ -163,7 +167,7 @@ void Core::consumeReply(QNetworkReply *reply)
                            && object.value(QStringLiteral("code")).toInt(-1) == 0;
         emit logMessage(apiOk ? QStringLiteral("Danmaku accepted by server")
                               : QStringLiteral("Danmaku rejected by server"));
-    } else {
+    } else if (m_loggedIn) {
         emit logMessage(QStringLiteral("Danmaku request failed"));
     }
 
