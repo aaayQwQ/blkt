@@ -83,6 +83,7 @@ private:
     int m_reconnectAttempt = 0;
     bool m_authenticated = false;
     bool m_giftCatalogLoaded = false;
+    int m_commandDiagnosticCount = 0;
 
     static constexpr qsizetype MaxResponseBytes = 64 * 1024;
     static constexpr qsizetype MaxGiftCatalogBytes = 4 * 1024 * 1024;
