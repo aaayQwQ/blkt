@@ -295,6 +295,7 @@ bool BilibiliAdapter::connectRoom(const QString &roomId)
 
     m_roomId = roomId;
     m_roomRequested = true;
+    m_core->setRoomConnection(m_roomId, false);
     requestDanmuInfo();
     return true;
 }
@@ -658,12 +659,15 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
                 m_authTimeout.stop();
                 if (accepted) {
                     m_roomConnected = true;
+                    m_core->setRoomConnection(m_roomId, true);
                     m_reconnectAttempt = 0;
                     m_reconnectTimer.stop();
                     m_heartbeat.start();
                     emit m_core->logMessage(QStringLiteral("Connected to Bilibili live room"));
                 } else {
                     m_roomRequested = false;
+                    m_roomConnected = false;
+                    m_core->setRoomConnection(m_roomId, false);
                     m_webSocket.close();
                     emit m_core->logMessage(QStringLiteral("Bilibili rejected live room authentication"));
                 }
@@ -744,6 +748,8 @@ void BilibiliAdapter::disconnectRoom()
     m_reconnectTimer.stop();
     m_reconnectAttempt = 0;
     m_roomConnected = false;
+    if (m_core)
+        m_core->setRoomConnection({}, false);
     m_heartbeat.stop();
     m_authTimeout.stop();
     m_timeout.stop();
