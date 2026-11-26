@@ -17,10 +17,10 @@ int main()
 
     add(".bilibili.com", "TRUE", "/", "TRUE", future, "SESSDATA", "session");
     add(".bilibili.com", "TRUE", "/", "TRUE", future, "bili_jct", "csrf");
-    add(".bilibili.com", "TRUE", "/", "TRUE", future, "buvid3", "device");
+    add(".bilibili.com", "TRUE", "/", "FALSE", future, "buvid3", "device");
     add(".bilibili.com", "TRUE", "/", "TRUE", future, "unrelated", "must-not-leak");
     add(".bilibili.com", "TRUE", "/private", "TRUE", future, "SESSDATA", "wrong-path");
-    add(".bilibili.com", "TRUE", "/", "FALSE", future, "bili_jct", "not-secure");
+    add(".bilibili.com", "TRUE", "/", "MAYBE", future, "bili_jct", "invalid-secure-flag");
     add(".bilibili.com", "TRUE", "/", "TRUE", expired, "buvid3", "expired");
     add("api.bilibili.com", "FALSE", "/", "TRUE", future, "SESSDATA", "host-only");
 
