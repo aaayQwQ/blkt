@@ -54,6 +54,7 @@ private:
     QTimer m_debounce;
     QHash<QString, QSharedPointer<Entry>> m_plugins;
     QHash<QString, Permissions> m_grants;
+    QSharedPointer<int> m_lifetime = QSharedPointer<int>::create(1);
     bool m_running = false;
 };
 
