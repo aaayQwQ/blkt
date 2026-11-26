@@ -705,6 +705,7 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
             return;
 
         MessageEvent event;
+        event.roomId = m_roomId;
         event.user = userInfo.at(1).toString();
         event.text = info.at(1).toString();
         event.timestamp = QDateTime::currentSecsSinceEpoch();
@@ -714,6 +715,7 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
 
     if (cmd == QStringLiteral("SEND_GIFT") && m_core) {
         GiftEvent event;
+        event.roomId = m_roomId;
         event.user = data.value(QStringLiteral("uname")).toString();
         event.giftName = data.value(QStringLiteral("giftName")).toString();
         bool giftIdOk = false;
