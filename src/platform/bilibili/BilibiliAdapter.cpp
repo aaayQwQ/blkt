@@ -1000,7 +1000,36 @@ void BilibiliAdapter::handleBinaryMessage(const QByteArray &message)
 void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
 {
     if (depth > 3 || data.size() > MaxWebSocketPacketBytes) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili packet rejected: nesting depth or decoded size limit exceeded"));
         m_webSocket.abort();
+        return;
+    }
+
+    // Some gateway deployments deliver a plain JSON body after decompression,
+    // while others wrap one or more JSON bodies in protocol packets. Accept
+    // both representations without weakening packet-size or nesting limits.
+    const QByteArray trimmed = data.trimmed();
+    if (!trimmed.isEmpty() && (trimmed.startsWith('{') || trimmed.startsWith('['))) {
+        QJsonParseError jsonError;
+        const QJsonDocument json = QJsonDocument::fromJson(trimmed, &jsonError);
+        if (jsonError.error != QJsonParseError::NoError) {
+            if (m_core)
+                emit m_core->logMessage(QStringLiteral(
+                    "Bilibili message JSON decode failed: %1, bytes %2")
+                    .arg(jsonError.errorString()).arg(trimmed.size()));
+            return;
+        }
+        if (json.isObject()) {
+            handleCommand(json.object());
+        } else if (json.isArray()) {
+            const QJsonArray commands = json.array();
+            for (const QJsonValue &value : commands) {
+                if (value.isObject())
+                    handleCommand(value.toObject());
+            }
+        }
         return;
     }
 
@@ -1023,9 +1052,17 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
         if (version == ProtocolVersionZlib) {
             const QByteArray expanded = decompressZlib(payload);
             if (expanded.isEmpty()) {
+                if (m_core)
+                    emit m_core->logMessage(QStringLiteral(
+                        "Bilibili zlib payload decompression failed: compressed bytes %1, depth %2")
+                        .arg(payload.size()).arg(depth));
                 m_webSocket.abort();
                 return;
             }
+            if (m_core)
+                emit m_core->logMessage(QStringLiteral(
+                    "Bilibili zlib payload decoded: %1 bytes at depth %2")
+                    .arg(expanded.size()).arg(depth));
             handlePacketData(expanded, depth + 1);
         } else if (version == ProtocolVersionPlain || version == 0) {
             if (operation == OperationAuthReply) {
@@ -1062,8 +1099,24 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
             } else if (operation == OperationMessage) {
                 QJsonParseError error;
                 const QJsonDocument document = QJsonDocument::fromJson(payload, &error);
-                if (error.error == QJsonParseError::NoError && document.isObject())
+                if (error.error != QJsonParseError::NoError) {
+                    if (m_core)
+                        emit m_core->logMessage(QStringLiteral(
+                            "Bilibili operation 5 JSON parse failed: %1, bytes %2")
+                            .arg(error.errorString()).arg(payload.size()));
+                } else if (document.isObject()) {
                     handleCommand(document.object());
+                } else if (document.isArray()) {
+                    const QJsonArray commands = document.array();
+                    for (const QJsonValue &value : commands) {
+                        if (value.isObject())
+                            handleCommand(value.toObject());
+                    }
+                } else if (m_core) {
+                    emit m_core->logMessage(QStringLiteral(
+                        "Bilibili operation 5 contained unsupported JSON root, bytes %1")
+                        .arg(payload.size()));
+                }
             } else if (operation == OperationHeartbeatReply) {
                 // Popularity payload is intentionally ignored by the core.
             }
@@ -1085,18 +1138,48 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
     const QJsonObject data = command.value(QStringLiteral("data")).toObject();
 
     if (cmd.startsWith(QStringLiteral("DANMU_MSG"))) {
-        const QJsonArray info = command.value(QStringLiteral("info")).toArray();
-        if (info.size() < 3 || !m_core)
+        if (!m_core)
             return;
 
-        const QJsonArray userInfo = info.at(2).toArray();
-        if (userInfo.size() < 2)
+        const QJsonArray info = command.value(QStringLiteral("info")).toArray();
+        const QJsonObject messageData = command.value(QStringLiteral("data")).toObject();
+        QString user;
+        QString text;
+
+        if (info.size() >= 3) {
+            text = info.at(1).toString();
+            const QJsonArray userInfo = info.at(2).toArray();
+            if (userInfo.size() >= 2)
+                user = userInfo.at(1).toString();
+
+            // Newer DANMU_MSG payloads may also expose structured user data
+            // at info[2][15].user.base.name.
+            if (user.isEmpty() && userInfo.size() > 15) {
+                const QJsonObject extension = userInfo.at(15).toObject();
+                const QJsonObject userObject = extension.value(QStringLiteral("user")).toObject();
+                const QJsonObject base = userObject.value(QStringLiteral("base")).toObject();
+                user = base.value(QStringLiteral("name")).toString();
+            }
+        }
+
+        if (user.isEmpty())
+            user = messageData.value(QStringLiteral("uname")).toString();
+        if (text.isEmpty())
+            text = messageData.value(QStringLiteral("content")).toString();
+        if (text.isEmpty())
+            text = messageData.value(QStringLiteral("msg")).toString();
+
+        if (user.trimmed().isEmpty() || text.trimmed().isEmpty()) {
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili DANMU_MSG ignored: missing user or text (info fields %1)")
+                .arg(info.size()));
             return;
+        }
 
         MessageEvent event;
         event.roomId = m_roomId;
-        event.user = userInfo.at(1).toString();
-        event.text = info.at(1).toString();
+        event.user = user;
+        event.text = text;
         event.timestamp = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
         m_core->ingestMessage(event);
         return;
