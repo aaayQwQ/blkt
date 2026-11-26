@@ -113,6 +113,8 @@ Read gift metadata:
 }
 ```
 
+The `room_id` must match the currently connected room. The host rejects attempts to send to another room.
+
 The host replies with:
 
 ```json
