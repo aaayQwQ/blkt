@@ -8,6 +8,7 @@
 #include <QTimer>
 
 class QNetworkReply;
+class QJsonObject;
 
 namespace blkt {
 
