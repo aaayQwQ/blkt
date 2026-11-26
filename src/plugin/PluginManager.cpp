@@ -4,8 +4,9 @@
 
 #include <QCoreApplication>
 #include <QFileInfo>
-#include <QMetaObject>
-#include <QDebug>
+#include <QLibrary>
+#include <QRegularExpression>
+#include <QSet>
 
 namespace blkt {
 
@@ -23,17 +24,17 @@ PluginManager::PluginManager(Core *core, const QString &directory, QObject *pare
 
     if (m_core) {
         connect(m_core, &Core::messageReceived, this, [this](const MessageEvent &event) {
-            for (auto it = m_plugins.begin(); it != m_plugins.end(); ++it) {
-                Entry *entry = it.value().get();
-                if (entry && entry->active
+            const auto entries = m_plugins;
+            for (const auto &entry : entries) {
+                if (entry && entry->active && entry->plugin
                     && entry->permissions.testFlag(Permission::ReceiveMessage))
                     entry->plugin->onMessage(event);
             }
         });
         connect(m_core, &Core::giftReceived, this, [this](const GiftEvent &event) {
-            for (auto it = m_plugins.begin(); it != m_plugins.end(); ++it) {
-                Entry *entry = it.value().get();
-                if (entry && entry->active
+            const auto entries = m_plugins;
+            for (const auto &entry : entries) {
+                if (entry && entry->active && entry->plugin
                     && entry->permissions.testFlag(Permission::ReceiveGift))
                     entry->plugin->onGift(event);
             }
@@ -77,11 +78,13 @@ void PluginManager::stop()
 
 void PluginManager::setGrantedPermissions(const QString &pluginId, Permissions permissions)
 {
-    if (pluginId.isEmpty() || pluginId.size() > 128)
+    static const QRegularExpression idPattern(
+        QStringLiteral("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"));
+    if (!idPattern.match(pluginId).hasMatch())
         return;
 
     m_grants.insert(pluginId, permissions);
-    auto it = m_plugins.find(pluginId);
+    const auto it = m_plugins.find(pluginId);
     if (it != m_plugins.end())
         it.value()->permissions = permissions;
 }
@@ -125,7 +128,6 @@ void PluginManager::syncDirectory()
         if (!isTrustedPluginPath(file))
             continue;
 
-        // Plugin identifiers are validated after loading; path identity is canonical.
         candidates.insert(file.canonicalFilePath(), file);
         if (!m_watcher.files().contains(file.absoluteFilePath()))
             m_watcher.addPath(file.absoluteFilePath());
@@ -133,11 +135,12 @@ void PluginManager::syncDirectory()
 
     QStringList toRemove;
     for (auto it = m_plugins.cbegin(); it != m_plugins.cend(); ++it) {
-        const Entry *entry = it.value().get();
+        const Entry *entry = it.value().data();
         if (!entry || !candidates.contains(entry->canonicalPath)) {
             toRemove.append(it.key());
             continue;
         }
+
         const QFileInfo current = candidates.value(entry->canonicalPath);
         if (current.lastModified().toMSecsSinceEpoch() != entry->modifiedMs
             || current.size() != entry->fileSize)
@@ -162,7 +165,7 @@ bool PluginManager::loadPlugin(const QFileInfo &file)
     if (!m_running || !isTrustedPluginPath(file))
         return false;
 
-    auto entry = std::make_unique<Entry>();
+    auto entry = QSharedPointer<Entry>::create();
     entry->loader = std::make_unique<QPluginLoader>(file.absoluteFilePath());
     entry->loader->setLoadHints(QLibrary::LoadHints{});
 
@@ -180,8 +183,9 @@ bool PluginManager::loadPlugin(const QFileInfo &file)
     }
 
     const QString id = Guard::cleanText(plugin->id(), 128);
-    static const QRegularExpression idPattern(QStringLiteral("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"));
-    if (id.isEmpty() || !idPattern.match(id).hasMatch() || m_plugins.contains(id)) {
+    static const QRegularExpression idPattern(
+        QStringLiteral("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"));
+    if (!idPattern.match(id).hasMatch() || m_plugins.contains(id)) {
         entry->loader->unload();
         return false;
     }
@@ -210,10 +214,9 @@ bool PluginManager::loadPlugin(const QFileInfo &file)
         return m_core ? m_core->giftInfo(giftId) : std::nullopt;
     };
 
-    Entry *raw = entry.get();
-    m_plugins.insert(id, std::move(entry));
+    m_plugins.insert(id, entry);
     try {
-        raw->plugin->onLoad(raw->context);
+        plugin->onLoad(entry->context);
     } catch (...) {
         unloadPlugin(id);
         return false;
@@ -229,7 +232,7 @@ void PluginManager::unloadPlugin(const QString &pluginId)
     if (it == m_plugins.end())
         return;
 
-    Entry *entry = it.value().get();
+    const QSharedPointer<Entry> entry = it.value();
     entry->active = false;
     entry->context.sendMessage = {};
     entry->context.giftInfo = {};
