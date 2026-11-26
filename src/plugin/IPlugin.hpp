@@ -26,12 +26,14 @@ constexpr bool hasPermission(Permissions permissions, Permission permission)
 }
 
 struct MessageEvent {
+    QString roomId;
     QString user;
     QString text;
     quint64 timestamp = 0;
 };
 
 struct GiftEvent {
+    QString roomId;
     QString user;
     QString giftName;
     quint64 giftId = 0;
