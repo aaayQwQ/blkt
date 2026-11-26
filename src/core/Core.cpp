@@ -253,15 +253,24 @@ void Core::replaceGiftCatalog(const QList<GiftInfo> &items)
 
 void Core::ingestMessage(const MessageEvent &event)
 {
-    if (!m_loggedIn || !m_roomConnected || event.roomId != m_activeRoomId)
+    if (!m_loggedIn || !m_roomConnected || event.roomId != m_activeRoomId) {
+        emit logMessage(QStringLiteral(
+            "Incoming danmaku rejected by core: login %1, room connected %2, room match %3")
+            .arg(m_loggedIn ? QStringLiteral("yes") : QStringLiteral("no"),
+                 m_roomConnected ? QStringLiteral("yes") : QStringLiteral("no"),
+                 event.roomId == m_activeRoomId ? QStringLiteral("yes") : QStringLiteral("no")));
         return;
+    }
     MessageEvent safe = event;
     safe.roomId = Guard::cleanText(safe.roomId, 20);
     safe.user = Guard::cleanText(safe.user, 64);
     safe.text = Guard::cleanText(safe.text, 500);
-    if (safe.user.isEmpty() || safe.text.isEmpty())
+    if (safe.user.isEmpty() || safe.text.isEmpty()) {
+        emit logMessage(QStringLiteral("Incoming danmaku rejected by core: empty user or text after validation"));
         return;
+    }
     emit messageReceived(safe);
+    emit logMessage(QStringLiteral("Incoming danmaku accepted and dispatched to plugin manager"));
 }
 
 void Core::ingestGift(const GiftEvent &event)
