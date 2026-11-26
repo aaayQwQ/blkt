@@ -41,7 +41,7 @@ signals:
 private:
     void clearSession();
     void abortActiveRequests();
-    void consumeReply(QNetworkReply *reply);
+    void consumeReply(QNetworkReply *reply, quint64 generation);
 
     QNetworkAccessManager m_network;
     QSet<QNetworkReply *> m_activeReplies;
@@ -49,7 +49,7 @@ private:
     QString m_csrf;
     QHash<quint64, GiftInfo> m_gifts;
     QElapsedTimer m_clock;
-    qint64 m_lastSendMs = -100000;
+    qint64 m_lastSendMs = -100000;\n    quint64 m_sessionGeneration = 0;
     bool m_loggedIn = false;
     static constexpr qint64 SendIntervalMs = 1000;
     static constexpr qsizetype MaxReplyBytes = 64 * 1024;
