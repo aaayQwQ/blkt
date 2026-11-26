@@ -525,14 +525,20 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     }
 
     m_timeout.stop();
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
     const QByteArray body = reply->read(MaxResponseBytes + 1);
-    const bool transportOk = reply->error() == QNetworkReply::NoError
+    const bool transportOk = networkError == QNetworkReply::NoError
                              && body.size() <= MaxResponseBytes;
     reply->deleteLater();
     m_roomInfoReply.clear();
 
     if (!transportOk) {
-        emit m_core->logMessage(QStringLiteral("Live room information request failed"));
+        emit m_core->logMessage(QStringLiteral(
+            "Live room information transport failure: HTTP %1, Qt error %2 (%3), bytes %4")
+            .arg(httpStatus).arg(static_cast<int>(networkError))
+            .arg(networkErrorText.left(160)).arg(body.size()));
         scheduleReconnect();
         return;
     }
@@ -543,11 +549,16 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     const QJsonObject data = root.value(QStringLiteral("data")).toObject();
     const QJsonArray hosts = data.value(QStringLiteral("host_list")).toArray();
     const QString token = data.value(QStringLiteral("token")).toString();
+    const int apiCode = root.value(QStringLiteral("code")).toInt(-1);
 
-    if (parseError.error != QJsonParseError::NoError
-        || root.value(QStringLiteral("code")).toInt(-1) != 0
+    if (parseError.error != QJsonParseError::NoError || apiCode != 0
         || token.isEmpty() || token.size() > 4096 || hosts.isEmpty()) {
-        emit m_core->logMessage(QStringLiteral("Live room information response was invalid"));
+        const QString apiMessage = root.value(QStringLiteral("message")).toString(
+            root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message")));
+        emit m_core->logMessage(QStringLiteral(
+            "Live room information rejected: HTTP %1, API code %2, message '%3', JSON error '%4', host count %5")
+            .arg(httpStatus).arg(apiCode).arg(apiMessage.left(160))
+            .arg(parseError.errorString().left(120)).arg(hosts.size()));
         scheduleReconnect();
         return;
     }
@@ -879,8 +890,11 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
             if (operation == OperationAuthReply) {
                 QJsonParseError error;
                 const QJsonDocument document = QJsonDocument::fromJson(payload, &error);
-                const bool accepted = error.error == QJsonParseError::NoError
-                    && document.object().value(QStringLiteral("code")).toInt(-1) == 0;
+                const QJsonObject authResult = document.object();
+                const int authCode = authResult.value(QStringLiteral("code")).toInt(-1);
+                const QString authMessage = authResult.value(QStringLiteral("message")).toString(
+                    authResult.value(QStringLiteral("msg")).toString(QStringLiteral("no server message")));
+                const bool accepted = error.error == QJsonParseError::NoError && authCode == 0;
                 m_authTimeout.stop();
                 if (accepted) {
                     m_roomConnected = true;
@@ -894,7 +908,8 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
                     m_roomConnected = false;
                     m_core->setRoomConnection(m_roomId, false);
                     m_webSocket.close();
-                    emit m_core->logMessage(QStringLiteral("Bilibili rejected live room authentication"));
+                    emit m_core->logMessage(QStringLiteral("Bilibili rejected live room authentication: code %1, message '%2'")
+                        .arg(authCode).arg(authMessage.left(160)));
                 }
             } else if (operation == OperationMessage) {
                 QJsonParseError error;
