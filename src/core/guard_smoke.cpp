@@ -21,7 +21,9 @@ int main()
 
     if (Guard::validRoomId(QStringLiteral("0"))
         || Guard::validRoomId(QStringLiteral("room"))
-        || Guard::validRoomId(QStringLiteral("123456789012345678901")))
+        || Guard::validRoomId(QStringLiteral("123456789012345678901"))
+        || Guard::validRoomId(QStringLiteral("+1"))
+        || Guard::validRoomId(QStringLiteral("1 ")))
         return 4;
 
     if (!Guard::validCsrf(QStringLiteral("0123456789abcdefABCDEF_-")))
