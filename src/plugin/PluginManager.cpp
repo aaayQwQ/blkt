@@ -57,6 +57,7 @@ QJsonObject giftToJson(const GiftEvent &event)
 PluginManager::PluginManager(Core *core, const QString &directory, QObject *parent)
     : QObject(parent), m_core(core), m_directory(directory)
 {
+    m_clock.start();
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(300);
     connect(&m_debounce, &QTimer::timeout, this, &PluginManager::syncDirectory);
@@ -379,6 +380,10 @@ void PluginManager::consumeStdout(const QString &pluginId)
     if (!entry || !entry->process)
         return;
 
+    if (entry->process->bytesAvailable() > 256 * 1024) {
+        stopPlugin(pluginId);
+        return;
+    }
     entry->inputBuffer.append(entry->process->readAllStandardOutput());
     if (entry->inputBuffer.size() > MaxPacketBytes
         && !entry->inputBuffer.contains('\n')) {
@@ -449,6 +454,16 @@ void PluginManager::handleRequest(Entry *entry, const QJsonObject &packet)
 {
     if (!entry || !entry->ready)
         return;
+
+    const qint64 now = m_clock.elapsed();
+    if (now - entry->requestWindowStartMs >= 1000) {
+        entry->requestWindowStartMs = now;
+        entry->requestCount = 0;
+    }
+    if (++entry->requestCount > 30) {
+        stopPlugin(entry->id);
+        return;
+    }
 
     const QString requestId = packet.value(QStringLiteral("id")).toString();
     const QString operation = packet.value(QStringLiteral("operation")).toString();
