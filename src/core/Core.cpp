@@ -103,6 +103,8 @@ void Core::setRoomConnection(const QString &roomId, bool connected)
 
     m_activeRoomId = roomId;
     m_roomConnected = connected;
+    if (!connected)
+        m_gifts.clear();
 }
 
 bool Core::sendMessage(const QString &roomId, const QString &text)
