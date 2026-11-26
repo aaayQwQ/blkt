@@ -630,8 +630,10 @@ void BilibiliAdapter::handleBinaryMessage(const QByteArray &message)
 
 void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
 {
-    if (depth > 3 || data.size() > MaxWebSocketPacketBytes)
+    if (depth > 3 || data.size() > MaxWebSocketPacketBytes) {
+        m_webSocket.abort();
         return;
+    }
 
     qsizetype offset = 0;
     while (offset + PacketHeaderSize <= data.size()) {
@@ -643,6 +645,7 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
         if (packetLength < PacketHeaderSize || packetLength > MaxWebSocketPacketBytes
             || headerLength < PacketHeaderSize || headerLength > packetLength
             || offset + packetLength > data.size()) {
+            m_webSocket.abort();
             return;
         }
 
@@ -650,8 +653,11 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
             data.mid(offset + headerLength, packetLength - headerLength);
         if (version == ProtocolVersionZlib) {
             const QByteArray expanded = decompressZlib(payload);
-            if (!expanded.isEmpty())
-                handlePacketData(expanded, depth + 1);
+            if (expanded.isEmpty()) {
+                m_webSocket.abort();
+                return;
+            }
+            handlePacketData(expanded, depth + 1);
         } else if (version == ProtocolVersionPlain || version == 0) {
             if (operation == OperationAuthReply) {
                 QJsonParseError error;
@@ -683,11 +689,14 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
             }
         } else {
             // Brotli and unknown protocol versions are not negotiated by this client.
+            m_webSocket.abort();
             return;
         }
 
         offset += packetLength;
     }
+    if (offset != data.size())
+        m_webSocket.abort();
 }
 
 void BilibiliAdapter::handleCommand(const QJsonObject &command)
