@@ -122,7 +122,12 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             m_roomInfoReply->abort();
     });
     connect(&m_reconnectTimer, &QTimer::timeout,
-            this, &BilibiliAdapter::requestDanmuInfo);
+            this, [this] {
+        if (m_roomResolved)
+            requestDanmuInfo();
+        else
+            requestRoomInit();
+    });
     connect(&m_heartbeat, &QTimer::timeout,
             this, &BilibiliAdapter::sendHeartbeat);
     connect(&m_giftTimeout, &QTimer::timeout, this, [this] {
@@ -306,9 +311,96 @@ bool BilibiliAdapter::connectRoom(const QString &roomId)
 
     m_roomId = roomId;
     m_roomRequested = true;
+    m_roomResolved = false;
     m_core->setRoomConnection(m_roomId, false);
-    requestDanmuInfo();
+    requestRoomInit();
     return true;
+}
+
+void BilibiliAdapter::requestRoomInit()
+{
+    if (!m_roomRequested || m_roomId.isEmpty())
+        return;
+
+    QPointer<QNetworkReply> previousReply = m_roomInfoReply;
+    m_roomInfoReply.clear();
+    if (previousReply && !previousReply->isFinished())
+        previousReply->abort();
+
+    QUrl url(QStringLiteral("https://api.live.bilibili.com/room/v1/Room/room_init"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("id"), m_roomId);
+    url.setQuery(query);
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Cookie", m_cookie);
+    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Referer", "https://live.bilibili.com/");
+
+    m_roomInfoReply = m_network.get(request);
+    if (!m_roomInfoReply) {
+        emit m_core->logMessage(QStringLiteral("Room ID resolution request could not be created"));
+        scheduleReconnect();
+        return;
+    }
+
+    QNetworkReply *reply = m_roomInfoReply;
+    reply->setReadBufferSize(MaxResponseBytes);
+    connect(reply, &QIODevice::readyRead, this, [reply] {
+        if (reply->bytesAvailable() > MaxResponseBytes)
+            reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        if (m_roomInfoReply == reply)
+            handleRoomInit(reply);
+        else
+            reply->deleteLater();
+    });
+    m_timeout.start();
+}
+
+void BilibiliAdapter::handleRoomInit(QNetworkReply *reply)
+{
+    if (!reply)
+        return;
+    if (m_roomInfoReply != reply) {
+        reply->deleteLater();
+        return;
+    }
+
+    m_timeout.stop();
+    const QByteArray body = reply->read(MaxResponseBytes + 1);
+    const bool transportOk = reply->error() == QNetworkReply::NoError
+                             && body.size() <= MaxResponseBytes;
+    reply->deleteLater();
+    m_roomInfoReply.clear();
+
+    if (!transportOk) {
+        emit m_core->logMessage(QStringLiteral("Room ID resolution failed"));
+        scheduleReconnect();
+        return;
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
+    const QJsonObject root = document.object();
+    const QJsonObject data = root.value(QStringLiteral("data")).toObject();
+    bool roomIdOk = false;
+    const quint64 realRoomId =
+        jsonUnsigned(data.value(QStringLiteral("room_id")), &roomIdOk);
+
+    if (parseError.error != QJsonParseError::NoError
+        || root.value(QStringLiteral("code")).toInt(-1) != 0
+        || !roomIdOk || realRoomId == 0
+        || !Guard::validRoomId(QString::number(realRoomId))) {
+        emit m_core->logMessage(QStringLiteral("Room ID resolution response was invalid"));
+        scheduleReconnect();
+        return;
+    }
+
+    m_roomId = QString::number(realRoomId);
+    m_roomResolved = true;
+    requestDanmuInfo();
 }
 
 QString BilibiliAdapter::buildWbiMixinKey(const QJsonObject &wbiImage) const
@@ -366,7 +458,7 @@ QMap<QString, QString> BilibiliAdapter::signWbiParameters(
 
 void BilibiliAdapter::requestDanmuInfo()
 {
-    if (!m_roomRequested || m_roomId.isEmpty())
+    if (!m_roomRequested || !m_roomResolved || m_roomId.isEmpty())
         return;
 
     QPointer<QNetworkReply> previousRoomReply = m_roomInfoReply;
@@ -798,6 +890,7 @@ void BilibiliAdapter::disconnectRoom()
     if (m_core)
         m_core->replaceGiftCatalog({});
     m_roomId.clear();
+    m_roomResolved = false;
     m_danmuToken.fill(QChar(u'\0'));
     m_danmuToken.clear();
 }
