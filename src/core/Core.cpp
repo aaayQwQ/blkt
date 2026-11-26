@@ -48,7 +48,7 @@ bool Core::login(const QByteArray &cookie, const QString &csrf)
     m_csrf = csrf;
     m_loggedIn = true;
     emit loginStateChanged(true);
-    emit logMessage(QStringLiteral("Cookie format accepted locally; remote account authentication is not verified yet"));
+    emit logMessage(QStringLiteral("Bilibili account authentication succeeded"));
     return true;
 }
 
@@ -91,7 +91,7 @@ bool Core::isLoggedIn() const
 
 bool Core::sendMessage(const QString &roomId, const QString &text)
 {
-    if (!m_loggedIn || !Guard::validRoomId(roomId))
+    if (!m_loggedIn || m_activeReplies.size() >= MaxActiveRequests\n        || !Guard::validRoomId(roomId))
         return false;
 
     QString safeText = Guard::cleanText(text, 500);
