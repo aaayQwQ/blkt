@@ -58,6 +58,7 @@ Message event:
 {
   "type": "event",
   "event": "message",
+  "room_id": "123456",
   "user": "viewer",
   "text": "hello",
   "timestamp": 1730000000
@@ -70,6 +71,7 @@ Gift event:
 {
   "type": "event",
   "event": "gift",
+  "room_id": "123456",
   "user": "viewer",
   "gift_name": "Rose",
   "gift_id": "1",
