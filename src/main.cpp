@@ -1,10 +1,10 @@
 #include "auth/CredentialStore.hpp"
 #include "core/Core.hpp"
+#include "platform/bilibili/BilibiliAdapter.hpp"
 #include "plugin/PluginManager.hpp"
 
 #include <QCoreApplication>
 #include <QDir>
-#include <QFileInfo>
 #include <QTextStream>
 
 int main(int argc, char *argv[])
@@ -13,10 +13,11 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("BLKT"));
     QCoreApplication::setOrganizationName(QStringLiteral("BLKT"));
 
-    // Portable mode: read the pre-provisioned cookie file beside the executable.
-    // No configuration, database, cache, or log files are created by this entry point.
+    // Portable mode: cookie.txt is provisioned by the user before launch.
+    // The application reads it only; it never creates or modifies it.
     const QString applicationDirectory = QCoreApplication::applicationDirPath();
-    const QString cookiePath = QDir(applicationDirectory).filePath(QStringLiteral("cookie.txt"));
+    const QString cookiePath =
+        QDir(applicationDirectory).filePath(QStringLiteral("cookie.txt"));
 
     blkt::CredentialStore credentials;
     QString credentialError;
@@ -33,21 +34,35 @@ int main(int argc, char *argv[])
                          stream << message << Qt::endl;
                      });
 
-    if (!core.login(credentials.cookieHeader(), credentials.csrfToken())) {
-        credentials.clear();
-        QTextStream stream(stderr);
-        stream << "BLKT: cookie validation failed" << Qt::endl;
-        return 3;
-    }
-    credentials.clear();
-
     const QString pluginPath =
         QDir(applicationDirectory).filePath(QStringLiteral("plugins"));
     blkt::PluginManager plugins(&core, pluginPath);
-
     if (!plugins.start()) {
-        core.logout();
+        credentials.clear();
         qCritical("BLKT: plugin manager initialization failed");
+        return 3;
+    }
+
+    blkt::BilibiliAdapter bilibili(&core);
+    QObject::connect(&bilibili, &blkt::BilibiliAdapter::authenticationFinished,
+                     &app, [&app](bool success, const QString &accountName,
+                                  quint64, const QString &reason) {
+        QTextStream stream(success ? stdout : stderr);
+        if (success)
+            stream << "BLKT: authenticated as " << accountName << Qt::endl;
+        else
+            stream << "BLKT: authentication failed: " << reason << Qt::endl;
+        if (!success)
+            app.exit(4);
+    });
+
+    const bool started = bilibili.authenticate(
+        credentials.cookieHeader(), credentials.csrfToken());
+    credentials.clear();
+
+    if (!started) {
+        plugins.stop();
+        qCritical("BLKT: authentication request could not be started");
         return 4;
     }
 
