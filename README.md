@@ -1,38 +1,48 @@
-# BLKT
+# BLKT 1.0.0
 
-BLKT is a lightweight, headless, single-account Bilibili live server built with Qt 6 and C++17.
+BLKT is a lightweight, headless, single-account Bilibili live server written in **Qt 6 and C++17**. It provides authenticated live-room connectivity, danmaku and gift events, a permission-gated JavaScript plugin API, and a portable Windows runtime.
 
-## Start
+## Requirements
 
-Place a pre-existing `cookie.txt` beside the executable before launch.
+- Qt 6.4 or newer (Core, Network, WebSockets and Qml)
+- CMake 3.21+
+- C++17 compiler
+- A valid Bilibili web session exported to `cookie.txt`
 
-Windows:
+## Quick start
+
+Place `cookie.txt` beside the executable, then run:
+
+**Windows**
 ```powershell
 .\blkt.exe --room 123456
 ```
 
-Linux:
+**Linux**
 ```sh
 ./blkt --room 123456
 ```
 
-Use Ctrl+C or SIGTERM for graceful shutdown. Logs go to stdout. BLKT does not create log, cache, database, config, or temporary files. Windows may independently create Prefetch records; applications cannot prevent OS-managed execution telemetry.
+Use Ctrl+C or SIGTERM for graceful shutdown. Logs are written to stdout. BLKT does not intentionally persist logs, cache, configuration, database, credentials, or temporary files. Windows may independently create Prefetch records; applications cannot prevent OS-managed execution telemetry.
+
+## Credentials
+
+Cookie is read-only and must be provisioned before startup. Netscape `cookies.txt` exports and raw Cookie headers are supported. BLKT imports only `SESSDATA`, `bili_jct`, and `buvid3`. Netscape entries must be shared Bilibili-domain cookies with root path and must not be expired. UTF-8 BOM exports are accepted. Unrelated cookies are discarded.
+
+Keep `cookie.txt` private and never commit it to source control. Refresh the export when Bilibili invalidates the session.
 
 ## Community JavaScript plugins
 
-The BLKT repository and release packages contain **no plugins or example plugins**. Plugins are community-maintained and installed separately.
-
-Put each community plugin directly in the runtime `plugins/` directory as exactly one JavaScript file:
+The repository and release packages contain **no third-party plugins or sample plugins**. Install trusted community plugins separately. Each plugin is one JavaScript file directly inside the runtime `plugins/` directory:
 
 ```text
 blkt.exe
 cookie.txt
 plugins/
   welcome.js
-  gifts.js
 ```
 
-There is no plugin subdirectory, manifest, JSON metadata, package manager, or bundled sample. The filename without `.js` is the plugin ID. Names must match `[A-Za-z0-9_-]{1,48}`.
+There is no plugin subdirectory, manifest, package manager, or bundled plugin. The filename without `.js` is the plugin ID; IDs must match `[A-Za-z0-9_-]{1,48}`.
 
 A plugin is not loaded unless explicitly allow-listed:
 
@@ -40,31 +50,27 @@ A plugin is not loaded unless explicitly allow-listed:
 .\blkt.exe --room 123456 --allow-plugin welcome
 ```
 
-The JavaScript API is intentionally small:
+The plugin API:
 
-- `BLKT.on("message", callback)` — receive validated chat events.
+- `BLKT.on("message", callback)` — receive validated danmaku events.
 - `BLKT.on("gift", callback)` — receive validated gift events.
-- `BLKT.giftInfo(giftId)` — read the in-memory gift catalog.
+- `BLKT.giftInfo(giftId)` — query the in-memory gift catalog.
 - `BLKT.log(text)` — write a bounded message to the host log.
-- `BLKT.sendMessage(text)` — send to the currently connected room, only when separately granted.
+- `BLKT.sendMessage(text)` — send to the active room, only when separately granted.
 
-Sending messages is denied by default. Explicitly grant it to a plugin that is already allow-listed:
+Message sending is denied by default. Grant it explicitly to an already allow-listed plugin:
 
 ```powershell
 .\blkt.exe --room 123456 --allow-plugin welcome --plugin-send-message welcome
 ```
 
-Each event dispatch has a shared 250 ms execution budget and a 64-callback cap. A plugin can register at most 8 handlers for each event. A plugin that exhausts the event time budget is disabled.
+Each event dispatch has a shared 250 ms execution budget and a 64-callback cap. Each plugin can register at most 8 handlers per event; at most 16 plugins are loaded. Repeated callback errors or exhausted execution budgets disable the affected plugin.
 
-Community plugin authors should distribute their own single-file `.js` packages separately; BLKT does not ship plugin source or examples.
+**Security boundary:** QJSEngine exposes only the BLKT API by default, but this is not an operating-system sandbox. Only install JavaScript from sources you trust. Do not run untrusted plugins with message-send permission.
 
-## Credentials
+## Windows portable runtime
 
-Cookie is read-only and must be provisioned before startup. It is not included in source or release artifacts. For Netscape exports, BLKT imports only `SESSDATA`, `bili_jct`, and `buvid3` from the shared Bilibili domain at the root path when the entry is not expired. Other cookie names and host-only or path-scoped entries are ignored. Raw Cookie headers are filtered to the same three names. All authenticated endpoints use HTTPS/WSS.
-
-## Windows portable runtime layout
-
-The Windows package keeps the executable and ordinary Qt runtime DLLs directly in `bin/`. Unused Qt Quick/OpenGL runtime components, translations, and unrelated plugin families are excluded.
+The Windows package places the executable and ordinary Qt runtime DLLs directly in `bin/`. The required Qt TLS backend remains in `bin/tls/`; community JavaScript files belong in `bin/plugins/`.
 
 ```text
 bin/
@@ -73,7 +79,6 @@ bin/
   Qt6Network.dll
   Qt6WebSockets.dll
   Qt6Qml.dll
-  ...
   qt.conf
   tls/
     <Qt TLS backend plugin DLL>
@@ -81,4 +86,27 @@ bin/
     <community JavaScript files only>
 ```
 
-Qt requires dynamically loaded plugins to remain in a plugin-type subdirectory. Therefore the required TLS backend stays in `bin/tls/`; the generated Qt runtime plugin tree is removed. The top-level `bin/plugins/` directory is reserved for community JavaScript files and contains no Qt runtime plugin DLLs.
+Unused Qt Quick/OpenGL runtime components, translations, and unrelated plugin families are excluded where the installed Qt deployment tool supports it.
+
+## Build and test
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release --parallel
+ctest --test-dir build -C Release --output-on-failure
+```
+
+GitHub Actions builds and tests Windows x64, Linux x64, macOS Intel, and macOS Apple Silicon packages. CI artifacts are attached to each workflow run.
+
+## Protocol behavior
+
+The client resolves short room IDs to canonical room IDs, obtains WBI-signed danmaku connection information, authenticates the live WebSocket, decodes plain and zlib packets, and maintains live and viewer heartbeats. Protocol v2 is used to retain the zlib-only runtime and avoid adding a Brotli DLL dependency.
+
+Danmaku and gift events are validated before entering the core and being dispatched to plugins. The first accepted danmaku is explicitly logged. A successful WebSocket authentication does not itself prove that a room has active chat traffic; end-to-end testing requires an actual danmaku message in the room.
+
+## Scope and limitations
+
+- One authenticated Bilibili account and one active room per process.
+- No GUI, AI features, database, built-in plugin marketplace, or bundled community plugins.
+- Linux packages require Qt 6 runtime libraries on the target system.
+- Bilibili may change private/web API behavior without notice; live integration must be verified against an active room and a current account session.
