@@ -10,6 +10,7 @@
 #include <QHash>
 #include <QPluginLoader>
 #include <QSharedPointer>
+#include <QTemporaryDir>
 
 #include <memory>
 
@@ -37,6 +38,8 @@ public:
 
 private:
     struct Entry {
+        // Keep the private staging directory alive longer than the loader.
+        std::unique_ptr<QTemporaryDir> stagingDirectory;
         std::unique_ptr<QPluginLoader> loader;
         IPlugin *plugin = nullptr;
         PluginContext context;
