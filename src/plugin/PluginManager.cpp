@@ -297,7 +297,7 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     entry->id = id;
     entry->canonicalPath = file.canonicalFilePath();
     entry->digest = m_trustedHashes.value(file.fileName());
-    entry->permissions = m_grants.value(id, 0);
+    entry->permissions = m_grants.value(id, Permissions{});
     entry->process = new QProcess(this);
     entry->readyTimer = new QTimer(entry->process);
     entry->readyTimer->setSingleShot(true);
