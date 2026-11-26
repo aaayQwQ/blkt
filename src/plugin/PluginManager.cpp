@@ -31,6 +31,7 @@ QJsonObject messageToJson(const MessageEvent &event)
     QJsonObject object;
     object.insert(QStringLiteral("type"), QStringLiteral("event"));
     object.insert(QStringLiteral("event"), QStringLiteral("message"));
+    object.insert(QStringLiteral("room_id"), event.roomId);
     object.insert(QStringLiteral("user"), event.user);
     object.insert(QStringLiteral("text"), event.text);
     object.insert(QStringLiteral("timestamp"), static_cast<double>(event.timestamp));
@@ -42,6 +43,7 @@ QJsonObject giftToJson(const GiftEvent &event)
     QJsonObject object;
     object.insert(QStringLiteral("type"), QStringLiteral("event"));
     object.insert(QStringLiteral("event"), QStringLiteral("gift"));
+    object.insert(QStringLiteral("room_id"), event.roomId);
     object.insert(QStringLiteral("user"), event.user);
     object.insert(QStringLiteral("gift_name"), event.giftName);
     object.insert(QStringLiteral("gift_id"), QString::number(event.giftId));
