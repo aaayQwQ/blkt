@@ -72,19 +72,27 @@ else()
 endif()
 
 if(WIN32)
-    qt_generate_deploy_app_script(
-        TARGET blkt
-        OUTPUT_SCRIPT deploy_script
-        NO_TRANSLATIONS
-        DEPLOY_TOOL_OPTIONS
-            --no-system-d3d-compiler
-            --no-opengl-sw
-            --no-quick-import
-            --no-quick
-            --no-opengl
-            --skip-plugin-types
-            generic,imageformats,networkinformation,platforms,qmltooling,styles
-    )
+    if(Qt6_VERSION VERSION_GREATER_EQUAL "6.7")
+        qt_generate_deploy_app_script(
+            TARGET blkt
+            OUTPUT_SCRIPT deploy_script
+            NO_TRANSLATIONS
+            DEPLOY_TOOL_OPTIONS
+                --no-system-d3d-compiler
+                --no-opengl-sw
+                --no-quick-import
+                --no-quick
+                --no-opengl
+                --skip-plugin-types
+                generic,imageformats,networkinformation,platforms,qmltooling,styles
+        )
+    else()
+        qt_generate_deploy_app_script(
+            TARGET blkt
+            OUTPUT_SCRIPT deploy_script
+            NO_TRANSLATIONS
+        )
+    endif()
     install(SCRIPT ${deploy_script})
     # Keep the executable and Qt runtime DLLs together in bin. Qt's plugin
     # loader still requires a type subdirectory for the TLS backend, but the
