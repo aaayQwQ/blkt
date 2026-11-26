@@ -156,6 +156,7 @@ endif()
 
 # Deploy Qt runtime libraries for the host and independent worker.
 # qt_deploy_runtime_dependencies is available from Qt 6.3.
+if(WIN32 OR APPLE)
 set(deploy_script "${CMAKE_CURRENT_BINARY_DIR}/deploy-$<CONFIG>.cmake")
 file(GENERATE OUTPUT "${deploy_script}" CONTENT "
 include(\"${QT_DEPLOY_SUPPORT}\")
@@ -175,3 +176,6 @@ else()
 endif()
 ")
 install(SCRIPT "${deploy_script}")
+else()
+    message(STATUS "Linux package is portable in layout but requires the Qt 6 runtime on the target system.")
+endif()
