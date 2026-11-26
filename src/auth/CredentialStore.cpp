@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QFileInfo>
 #include <QDateTime>
+#include <QList>
 
 namespace blkt {
 namespace {
