@@ -140,6 +140,8 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
         m_heartbeat.stop();
         m_authTimeout.stop();
         m_roomConnected = false;
+        if (m_core && !m_roomId.isEmpty())
+            m_core->setRoomConnection(m_roomId, false);
         if (m_roomRequested) {
             if (m_core)
                 emit m_core->logMessage(QStringLiteral("Bilibili live connection disconnected; reconnect scheduled"));
