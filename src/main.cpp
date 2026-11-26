@@ -30,7 +30,7 @@ int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("BLKT"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.2.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.0.0"));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("BLKT headless Bilibili live server"));
