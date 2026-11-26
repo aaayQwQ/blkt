@@ -537,3 +537,11 @@ void PluginManager::stopPlugin(const QString &pluginId)
     delete entry;
 }
 
+void PluginManager::stopAll()
+{
+    const QStringList ids = m_plugins.keys();
+    for (const QString &id : ids)
+        stopPlugin(id);
+}
+
+} // namespace blkt
