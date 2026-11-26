@@ -152,6 +152,6 @@ The worker should exit promptly. The host waits for a bounded grace period, then
 
 A worker never receives a host object pointer, Cookie, CSRF token, or database handle. Capability requests are validated by the host.
 
-**Important:** process separation is not an operating-system sandbox. In this initial implementation, a worker runs under the same OS user and may still access files and network resources that user can access. SHA-256 trust records identify the approved executable bytes; they do not prove that the program is safe. Only run plugins from sources you trust. OS-level sandbox enforcement remains a required security milestone.
+**Important:** process separation is not an operating-system sandbox. In this initial implementation, a worker runs under the same OS user and may still access files and network resources that user can access, including the portable `cookie.txt` file. SHA-256 trust records identify the approved executable bytes; they do not prove that the program is safe. Only run plugins from sources you trust. OS-level sandbox enforcement remains a required security milestone.
 
 The host itself does not write runtime caches, configuration, database, or log files. Plugin authors are expected to keep plugin state in memory and not write caches to disk; this rule is not yet technically enforceable against a malicious worker.
