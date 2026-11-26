@@ -72,8 +72,9 @@ PluginManager::PluginManager(Core *core, const QString &directory, QObject *pare
             const auto entries = m_plugins;
             for (Entry *entry : entries) {
                 if (entry && entry->ready
-                    && hasPermission(entry->permissions, Permission::ReceiveMessage))
-                    sendPacket(entry, packet);
+                    && hasPermission(entry->permissions, Permission::ReceiveMessage)
+                    && !sendPacket(entry, packet))
+                    stopPlugin(entry->id);
             }
         });
         connect(m_core, &Core::giftReceived, this, [this](const GiftEvent &event) {
@@ -81,8 +82,9 @@ PluginManager::PluginManager(Core *core, const QString &directory, QObject *pare
             const auto entries = m_plugins;
             for (Entry *entry : entries) {
                 if (entry && entry->ready
-                    && hasPermission(entry->permissions, Permission::ReceiveGift))
-                    sendPacket(entry, packet);
+                    && hasPermission(entry->permissions, Permission::ReceiveGift)
+                    && !sendPacket(entry, packet))
+                    stopPlugin(entry->id);
             }
         });
     }
@@ -147,7 +149,8 @@ void PluginManager::setGrantedPermissions(const QString &pluginId, Permissions p
         QJsonObject packet;
         packet.insert(QStringLiteral("type"), QStringLiteral("permissions"));
         packet.insert(QStringLiteral("permissions"), QJsonArray::fromStringList(permissionsFor(permissions)));
-        sendPacket(entry, packet);
+        if (!sendPacket(entry, packet))
+            stopPlugin(entry->id);
     }
 }
 
@@ -500,7 +503,8 @@ void PluginManager::handleRequest(Entry *entry, const QJsonObject &packet)
     }
 
     response.insert(QStringLiteral("ok"), ok);
-    sendPacket(entry, response);
+    if (!sendPacket(entry, response))
+        stopPlugin(entry->id);
 }
 
 QStringList PluginManager::permissionsFor(Permissions permissions) const
