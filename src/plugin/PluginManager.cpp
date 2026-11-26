@@ -358,6 +358,7 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
         environment.insert(QStringLiteral("LANG"), lang);
 #endif
     process->setProcessEnvironment(environment);
+    process->setWorkingDirectory(m_directory.absolutePath());
     process->start(file.canonicalFilePath(),
                    {QStringLiteral("--blkt-plugin-worker"),
                     QStringLiteral("--blkt-protocol=1")});
