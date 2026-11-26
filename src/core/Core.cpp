@@ -72,6 +72,8 @@ void Core::clearSession()
     m_csrf.fill(QChar(u'\0'));
     m_csrf.clear();
     m_loggedIn = false;
+    m_activeRoomId.clear();
+    m_roomConnected = false;
     m_lastSendMs = -100000;
     m_gifts.clear();
 }
@@ -89,10 +91,24 @@ bool Core::isLoggedIn() const
     return m_loggedIn;
 }
 
+void Core::setRoomConnection(const QString &roomId, bool connected)
+{
+    if (roomId.isEmpty()) {
+        m_activeRoomId.clear();
+        m_roomConnected = false;
+        return;
+    }
+    if (!Guard::validRoomId(roomId))
+        return;
+
+    m_activeRoomId = roomId;
+    m_roomConnected = connected;
+}
+
 bool Core::sendMessage(const QString &roomId, const QString &text)
 {
-    if (!m_loggedIn || m_activeReplies.size() >= MaxActiveRequests
-        || !Guard::validRoomId(roomId))
+    if (!m_loggedIn || !m_roomConnected || roomId != m_activeRoomId
+        || m_activeReplies.size() >= MaxActiveRequests || !Guard::validRoomId(roomId))
         return false;
 
     QString safeText = Guard::cleanText(text, 500);
