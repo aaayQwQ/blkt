@@ -1,7 +1,7 @@
 #pragma once
 
-#include <QString>
 #include <QtGlobal>
+#include <QString>
 
 namespace blkt {
 
@@ -12,18 +12,8 @@ enum class Permission : quint32 {
     ReceiveGift    = 1u << 2,
     GiftInfo       = 1u << 3
 };
-
-using Permissions = quint32;
-
-constexpr Permissions permissionFlag(Permission permission)
-{
-    return static_cast<Permissions>(permission);
-}
-
-constexpr bool hasPermission(Permissions permissions, Permission permission)
-{
-    return (permissions & permissionFlag(permission)) != 0;
-}
+Q_DECLARE_FLAGS(Permissions, Permission)
+Q_DECLARE_OPERATORS_FOR_FLAGS(Permissions)
 
 struct MessageEvent {
     QString roomId;
@@ -49,5 +39,12 @@ struct GiftInfo {
     quint64 price = 0;
     QString coinType;
 };
+
+namespace PluginProtocol {
+inline constexpr int Version = 1;
+inline constexpr qsizetype MaxPacketBytes = 64 * 1024;
+inline constexpr int MaxRequestsPerSecond = 30;
+inline constexpr int MaxPacketsPerSecond = 100;
+}
 
 } // namespace blkt
