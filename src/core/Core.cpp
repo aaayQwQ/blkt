@@ -66,9 +66,9 @@ void Core::clearSession()
 {
     abortActiveRequests();
     if (!m_cookie.isEmpty())
-        m_cookie.fill('\\0');
+        m_cookie.fill('\0');
     m_cookie.clear();
-    m_csrf.fill(QChar(u'\\0'));
+    m_csrf.fill(QChar(u'\0'));
     m_csrf.clear();
     m_loggedIn = false;
 }
@@ -92,8 +92,8 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
         return false;
 
     QString safeText = Guard::cleanText(text, 500);
-    safeText.replace(QChar(u'\\n'), QChar(u' '));
-    safeText.replace(QChar(u'\\t'), QChar(u' '));
+    safeText.replace(QChar(u'\n'), QChar(u' '));
+    safeText.replace(QChar(u'\t'), QChar(u' '));
     if (safeText.isEmpty() || safeText.size() > 500)
         return false;
 
