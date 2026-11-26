@@ -69,6 +69,11 @@ bool Guard::validRoomId(const QString &roomId)
     if (roomId.isEmpty() || roomId.size() > 20)
         return false;
 
+    for (const QChar ch : roomId) {
+        if (ch < QLatin1Char('0') || ch > QLatin1Char('9'))
+            return false;
+    }
+
     bool ok = false;
     const qulonglong value = roomId.toULongLong(&ok, 10);
     return ok && value > 0;
