@@ -141,8 +141,12 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             m_giftCatalogReply->abort();
     });
     connect(&m_authTimeout, &QTimer::timeout, this, [this] {
-        if (m_webSocket.state() != QAbstractSocket::UnconnectedState)
+        if (m_webSocket.state() != QAbstractSocket::UnconnectedState) {
+            if (m_core)
+                emit m_core->logMessage(QStringLiteral(
+                    "Bilibili WebSocket handshake/authentication timed out; aborting connection"));
             m_webSocket.abort();
+        }
     });
 
     connect(&m_webSocket, &QWebSocket::connected,
@@ -155,6 +159,24 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
         m_roomConnected = false;
         if (m_core && !m_roomId.isEmpty())
             m_core->setRoomConnection(m_roomId, false);
+
+        if (m_core) {
+            const QString closeReason = Guard::cleanText(m_webSocket.closeReason(), 160);
+            const int closeCode = static_cast<int>(m_webSocket.closeCode());
+            QString detail = QStringLiteral(
+                "Bilibili WebSocket disconnected: room %1, close code %2")
+                .arg(m_roomId.isEmpty() ? QStringLiteral("unknown") : m_roomId)
+                .arg(closeCode);
+            if (!closeReason.isEmpty())
+                detail += QStringLiteral(", reason '%1'").arg(closeReason);
+            if (m_webSocket.error() != QAbstractSocket::UnknownSocketError) {
+                const QString errorText = Guard::cleanText(m_webSocket.errorString(), 160);
+                if (!errorText.isEmpty())
+                    detail += QStringLiteral(", socket error '%1'").arg(errorText);
+            }
+            emit m_core->logMessage(detail);
+        }
+
         if (m_roomRequested) {
             if (m_core)
                 emit m_core->logMessage(QStringLiteral("Bilibili live connection disconnected; reconnect scheduled"));
@@ -409,7 +431,10 @@ void BilibiliAdapter::handleRoomInit(QNetworkReply *reply)
         return;
     }
 
-    m_roomId = QString::number(realRoomId);
+    const QString resolvedRoomId = QString::number(realRoomId);
+    if (m_roomId != resolvedRoomId)
+        m_giftCatalogLoaded = false;
+    m_roomId = resolvedRoomId;
     m_roomResolved = true;
     requestDanmuInfo();
 }
@@ -602,7 +627,7 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
 
 void BilibiliAdapter::requestGiftCatalog()
 {
-    if (!m_roomRequested || m_roomId.isEmpty())
+    if (!m_roomRequested || m_roomId.isEmpty() || m_giftCatalogLoaded)
         return;
 
     QPointer<QNetworkReply> previousReply = m_roomDetailsReply;
@@ -849,6 +874,7 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
 
     if (m_core) {
         m_core->replaceGiftCatalog(catalog);
+        m_giftCatalogLoaded = true;
         emit m_core->logMessage(
             QStringLiteral("Gift catalog loaded into memory: %1 items").arg(catalog.size()));
     }
@@ -860,7 +886,7 @@ void BilibiliAdapter::sendAuthPacket()
         return;
 
     QJsonObject auth;
-    auth.insert(QStringLiteral("uid"), 0);
+    auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
     auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
     auth.insert(QStringLiteral("protover"), 2);
     auth.insert(QStringLiteral("buvid"), m_buvid3);
@@ -1054,6 +1080,7 @@ void BilibiliAdapter::disconnectRoom()
 
     if (m_core)
         m_core->replaceGiftCatalog({});
+    m_giftCatalogLoaded = false;
     m_roomId.clear();
     m_roomResolved = false;
     m_danmuToken.fill(QChar(u'\0'));
@@ -1071,6 +1098,7 @@ void BilibiliAdapter::clearCredentials()
     m_buvid3.clear();
     m_wbiMixinKey.fill(QChar(u'\0'));
     m_wbiMixinKey.clear();
+    m_giftCatalogLoaded = false;
 }
 
 bool BilibiliAdapter::isAuthenticated() const
