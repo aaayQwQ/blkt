@@ -1,8 +1,0 @@
-{
-  "id": "example",
-  "name": "BLKT Example Script",
-  "version": "1.0.0",
-  "api_version": 1,
-  "permissions": ["receive_message", "receive_gift"],
-  "entry": "main.js"
-}

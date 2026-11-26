@@ -688,9 +688,9 @@ void BilibiliAdapter::fetchGiftCatalog(int areaId, int parentAreaId)
         previousGiftReply->abort();
 
     QUrl url(QStringLiteral(
-        "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList"));
+        "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/giftConfig"));
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("platform"), QStringLiteral("web"));
+    query.addQueryItem(QStringLiteral("platform"), QStringLiteral("pc"));
     query.addQueryItem(QStringLiteral("room_id"), m_roomId);
     if (areaId > 0)
         query.addQueryItem(QStringLiteral("area_id"), QString::number(areaId));
