@@ -225,8 +225,57 @@ bool PluginManager::loadPlugin(const QFileInfo &file)
         return false;
     }
 
+    const auto expected = m_trustedHashes.constFind(file.fileName());
+    if (expected == m_trustedHashes.cend())
+        return false;
+
     auto entry = QSharedPointer<Entry>::create();
-    entry->loader = std::make_unique<QPluginLoader>(file.absoluteFilePath());
+    entry->stagingDirectory = std::make_unique<QTemporaryDir>();
+    if (!entry->stagingDirectory->isValid()) {
+        emit m_core->logMessage(QStringLiteral("Plugin rejected: secure staging directory unavailable"));
+        return false;
+    }
+
+    // Copy first, hash the exact staged bytes, then load only the private staged copy.
+    // This closes the source-file replacement window between verification and dlopen/LoadLibrary.
+    QFile source(file.canonicalFilePath());
+    const QString stagedPath = entry->stagingDirectory->filePath(file.fileName());
+    QFile staged(stagedPath);
+    if (!source.open(QIODevice::ReadOnly)
+        || !staged.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        emit m_core->logMessage(QStringLiteral("Plugin rejected: cannot stage binary"));
+        return false;
+    }
+
+    QCryptographicHash stagedHash(QCryptographicHash::Sha256);
+    qint64 copiedBytes = 0;
+    constexpr qint64 MaxPluginBytes = 256LL * 1024LL * 1024LL;
+    while (!source.atEnd()) {
+        const QByteArray chunk = source.read(1024 * 1024);
+        if (chunk.isEmpty()) {
+            if (source.error() != QFileDevice::NoError) {
+                emit m_core->logMessage(QStringLiteral("Plugin rejected: source read failed"));
+                return false;
+            }
+            break;
+        }
+
+        copiedBytes += chunk.size();
+        if (copiedBytes > MaxPluginBytes || staged.write(chunk) != chunk.size()) {
+            emit m_core->logMessage(QStringLiteral("Plugin rejected: invalid or oversized binary"));
+            return false;
+        }
+        stagedHash.addData(chunk);
+    }
+
+    if (!staged.flush() || stagedHash.result().toHex() != expected.value()) {
+        emit m_core->logMessage(QStringLiteral("Plugin rejected: staged SHA-256 mismatch"));
+        return false;
+    }
+    staged.close();
+    source.close();
+
+    entry->loader = std::make_unique<QPluginLoader>(stagedPath);
     entry->loader->setLoadHints(QLibrary::LoadHints{});
 
     QObject *instance = entry->loader->instance();
