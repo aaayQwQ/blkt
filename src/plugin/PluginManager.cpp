@@ -257,7 +257,9 @@ void PluginManager::syncDirectory()
             continue;
         }
         const QFileInfo current = candidates.value(entry->canonicalPath);
-        if (!hasTrustedDigest(current))
+        const auto expected = m_trustedHashes.constFind(current.fileName());
+        if (!hasTrustedDigest(current) || expected == m_trustedHashes.cend()
+            || expected.value() != entry->digest)
             stopIds.append(it.key());
     }
     for (const QString &id : stopIds)
@@ -290,6 +292,7 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     auto *entry = new Entry;
     entry->id = id;
     entry->canonicalPath = file.canonicalFilePath();
+    entry->digest = m_trustedHashes.value(file.fileName());
     entry->permissions = m_grants.value(id, 0);
     entry->process = new QProcess(this);
     entry->readyTimer = new QTimer(entry->process);
