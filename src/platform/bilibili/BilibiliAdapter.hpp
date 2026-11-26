@@ -38,6 +38,7 @@ private:
     void finishAuthentication(QNetworkReply *reply);
     void clearCredentials();
     void requestDanmuInfo();
+    void scheduleReconnect();
     void handleDanmuInfo(QNetworkReply *reply);
     void sendAuthPacket();
     void sendHeartbeat();
@@ -52,6 +53,7 @@ private:
     QWebSocket m_webSocket;
     QTimer m_heartbeat;
     QTimer m_authTimeout;
+    QTimer m_reconnectTimer;
     QTimer m_timeout;
     QByteArray m_cookie;
     QString m_csrf;
@@ -61,6 +63,7 @@ private:
     QString m_danmuToken;
     bool m_roomConnected = false;
     bool m_roomRequested = false;
+    int m_reconnectAttempt = 0;
     bool m_authenticated = false;
 
     static constexpr qsizetype MaxResponseBytes = 64 * 1024;
