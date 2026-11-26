@@ -1,6 +1,7 @@
 #include "Guard.hpp"
 
 #include <QRegularExpression>
+#include <QChar>
 
 namespace blkt {
 
@@ -20,6 +21,32 @@ QString Guard::cleanText(const QString &value, qsizetype maxLength)
     }
 
     return result.trimmed();
+}
+
+QString Guard::cleanLogText(const QString &value, qsizetype maxLength)
+{
+    QString result;
+    result.reserve(qMin(value.size(), maxLength));
+    for (const QChar ch : value) {
+        if (result.size() >= maxLength)
+            break;
+        const QChar::Category category = ch.category();
+        if (category == QChar::Other_Control
+            || category == QChar::Other_Format
+            || category == QChar::Separator_Line
+            || category == QChar::Separator_Paragraph)
+            continue;
+        result.append(ch);
+    }
+    return result.trimmed();
+}
+
+bool Guard::validBilibiliWebSocketHost(const QString &host)
+{
+    const QString normalized = host.trimmed().toLower();
+    static const QRegularExpression allowed(
+        QStringLiteral(R"(^(?:broadcastlv|[a-z0-9-]+-live-comet-[a-z0-9-]+)\.chat\.bilibili\.com$)"));
+    return normalized.size() <= 253 && allowed.match(normalized).hasMatch();
 }
 
 QString Guard::redact(const QString &value)
