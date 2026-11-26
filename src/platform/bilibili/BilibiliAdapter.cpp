@@ -746,6 +746,7 @@ void BilibiliAdapter::disconnectRoom()
     m_roomConnected = false;
     m_heartbeat.stop();
     m_authTimeout.stop();
+    m_timeout.stop();
     m_giftTimeout.stop();
 
     if (m_roomInfoReply && !m_roomInfoReply->isFinished())
@@ -753,6 +754,7 @@ void BilibiliAdapter::disconnectRoom()
     if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
         m_giftCatalogReply->abort();
     m_roomInfoReply.clear();
+    m_giftCatalogReply.clear();
 
     if (m_webSocket.state() != QAbstractSocket::UnconnectedState)
         m_webSocket.close();
