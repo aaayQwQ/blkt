@@ -927,11 +927,10 @@ void BilibiliAdapter::sendAuthPacket()
     }
 
     QJsonObject auth;
-    // The current browser flow authenticates with uid=0. The getDanmuInfo
-    // token is session-bound by Cookie; sending a non-zero UID is optional and
-    // can cause a hard disconnect if the gateway associates the token with a
-    // different identity/session.
-    auth.insert(QStringLiteral("uid"), 0);
+    // Bind the live message-stream session to the same authenticated
+    // account whose Cookie was used for getDanmuInfo. uid=0 explicitly means
+    // guest mode and can hide the logged-in identity in room-side user data.
+    auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
     auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
     // Protocol v2 keeps the decoder dependency-free (zlib via Qt). Protocol v3
     // requires Brotli, which is deliberately not introduced as a new runtime DLL.
