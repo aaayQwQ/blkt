@@ -28,8 +28,7 @@ QJSValue runWithScriptDeadline(QJSEngine *engine,
                                const std::function<QJSValue()> &operation)
 {
     if (!engine)
-        return QJSValue(QJSValue::ErrorType::GenericError,
-                        QStringLiteral("Script engine unavailable"));
+        return QJSValue();
 
     std::mutex mutex;
     std::condition_variable finishedCondition;
