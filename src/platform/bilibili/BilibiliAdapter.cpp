@@ -611,12 +611,17 @@ void BilibiliAdapter::sendAuthPacket()
         return;
 
     QJsonObject auth;
-    auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
+    auth.insert(QStringLiteral("uid"), 0);
     auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
     auth.insert(QStringLiteral("protover"), 2);
     auth.insert(QStringLiteral("buvid"), m_buvid3);
     auth.insert(QStringLiteral("platform"), QStringLiteral("web"));
     auth.insert(QStringLiteral("type"), 2);
+    auth.insert(QStringLiteral("support_ack"), true);
+    auth.insert(QStringLiteral("queue_uuid"),
+                QString::number(QRandomGenerator::global()->generate(), 16)
+                    .rightJustified(8, QLatin1Char('0')));
+    auth.insert(QStringLiteral("scene"), QString());
     auth.insert(QStringLiteral("key"), m_danmuToken);
 
     const QByteArray packet = makePacket(
