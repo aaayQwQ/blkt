@@ -226,9 +226,19 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
     if (!safePluginId(id) || !m_allowedIds.contains(id) || m_plugins.contains(id))
         return false;
 
-    const QString root = QDir::cleanPath(m_directory.canonicalPath()) + QDir::separator();
-    const QString path = QDir::cleanPath(scriptInfo.canonicalFilePath());
-    if (path.isEmpty() || !path.startsWith(root, Qt::CaseSensitive)
+    // QDir::cleanPath() normalizes separators to '/', including on Windows.
+    // Normalize both canonical paths before the containment check.
+    const QString root =
+        QDir::cleanPath(QDir::fromNativeSeparators(m_directory.canonicalPath()))
+        + QLatin1Char('/');
+    const QString path =
+        QDir::cleanPath(QDir::fromNativeSeparators(scriptInfo.canonicalFilePath()));
+#if defined(Q_OS_WIN)
+    constexpr Qt::CaseSensitivity pathCaseSensitivity = Qt::CaseInsensitive;
+#else
+    constexpr Qt::CaseSensitivity pathCaseSensitivity = Qt::CaseSensitive;
+#endif
+    if (path.isEmpty() || !path.startsWith(root, pathCaseSensitivity)
         || scriptInfo.size() <= 0 || scriptInfo.size() > MaxScriptBytes) {
         emit m_core->logMessage(QStringLiteral("Plugin %1 rejected: invalid path or size").arg(id));
         return false;
