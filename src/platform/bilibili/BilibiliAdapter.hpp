@@ -3,6 +3,7 @@
 #include <QObject>
 #include <QByteArray>
 #include <QNetworkAccessManager>
+#include <QWebSocket>
 #include <QPointer>
 #include <QTimer>
 
@@ -21,6 +22,9 @@ public:
     ~BilibiliAdapter() override;
 
     bool authenticate(const QByteArray &cookie, const QString &csrf);
+    bool connectRoom(const QString &roomId);
+    void disconnectRoom();
+    bool isRoomConnected() const;
     bool isAuthenticated() const;
     QString accountName() const;
     quint64 accountId() const;
@@ -32,19 +36,36 @@ signals:
 private:
     void finishAuthentication(QNetworkReply *reply);
     void clearCredentials();
+    void requestDanmuInfo();
+    void handleDanmuInfo(QNetworkReply *reply);
+    void sendAuthPacket();
+    void sendHeartbeat();
+    void handleBinaryMessage(const QByteArray &message);
+    void handlePacketData(const QByteArray &data, int depth);
+    void handleCommand(const QJsonObject &command);
 
     Core *m_core = nullptr;
     QNetworkAccessManager m_network;
     QPointer<QNetworkReply> m_reply;
+    QPointer<QNetworkReply> m_roomInfoReply;
+    QWebSocket m_webSocket;
+    QTimer m_heartbeat;
+    QTimer m_authTimeout;
     QTimer m_timeout;
     QByteArray m_cookie;
     QString m_csrf;
     QString m_accountName;
     quint64 m_accountId = 0;
+    QString m_roomId;
+    QString m_danmuToken;
+    bool m_roomConnected = false;
+    bool m_roomRequested = false;
     bool m_authenticated = false;
 
     static constexpr qsizetype MaxResponseBytes = 64 * 1024;
     static constexpr int RequestTimeoutMs = 15000;
+    static constexpr int HeartbeatIntervalMs = 30000;
+    static constexpr int MaxWebSocketPacketBytes = 4 * 1024 * 1024;
 };
 
 } // namespace blkt
