@@ -2,6 +2,7 @@
 #include "../../core/Core.hpp"
 #include "../../core/Guard.hpp"
 
+#include <QAbstractSocket>
 #include <QDateTime>
 #include <QCryptographicHash>
 #include <QFileInfo>
@@ -13,6 +14,7 @@
 #include <QRegularExpression>
 #include <QRandomGenerator>
 #include <QStringList>
+#include <QVariant>
 #include <QUrl>
 #include <QUrlQuery>
 
