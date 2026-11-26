@@ -104,9 +104,12 @@ void Core::setRoomConnection(const QString &roomId, bool connected)
         m_lastSendMs = -100000;
     }
 
+    const bool roomChanged = roomId != m_activeRoomId;
     m_activeRoomId = roomId;
     m_roomConnected = !roomId.isEmpty() && connected;
-    if (!m_roomConnected)
+    // Keep the in-memory gift catalog across transient disconnects. It is
+    // scoped to the room and is cleared when the room or account changes.
+    if (roomChanged)
         m_gifts.clear();
 }
 
