@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - portable-single-account-plugin-v1
+      - security-hardening-deploy-bin
   pull_request:
   workflow_dispatch:
 
