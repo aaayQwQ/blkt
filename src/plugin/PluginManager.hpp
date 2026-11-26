@@ -3,6 +3,7 @@
 #include "IPlugin.hpp"
 
 #include <QObject>
+#include <QByteArray>
 #include <QDir>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
