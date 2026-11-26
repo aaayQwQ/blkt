@@ -520,7 +520,7 @@ void PluginManager::stopPlugin(const QString &pluginId)
             QJsonObject shutdown;
             shutdown.insert(QStringLiteral("type"), QStringLiteral("shutdown"));
             const QByteArray packet =
-                QJsonDocument(shutdown).toJson(QJsonDocument::Compact) + '\\n';
+                QJsonDocument(shutdown).toJson(QJsonDocument::Compact) + '\n';
             process->write(packet);
             process->waitForBytesWritten(100);
             if (!process->waitForFinished(GracefulStopMs)) {
