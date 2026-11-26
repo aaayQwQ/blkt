@@ -362,9 +362,10 @@ void BilibiliAdapter::requestDanmuInfo()
     if (!m_roomRequested || m_roomId.isEmpty())
         return;
 
-    if (m_roomInfoReply && !m_roomInfoReply->isFinished())
-        m_roomInfoReply->abort();
+    QPointer<QNetworkReply> previousRoomReply = m_roomInfoReply;
     m_roomInfoReply.clear();
+    if (previousRoomReply && !previousRoomReply->isFinished())
+        previousRoomReply->abort();
 
     QUrl url(QStringLiteral("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo"));
     QUrlQuery query;
@@ -481,9 +482,10 @@ void BilibiliAdapter::requestGiftCatalog()
 {
     if (!m_core || m_roomId.isEmpty())
         return;
-    if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
-        m_giftCatalogReply->abort();
+    QPointer<QNetworkReply> previousGiftReply = m_giftCatalogReply;
     m_giftCatalogReply.clear();
+    if (previousGiftReply && !previousGiftReply->isFinished())
+        previousGiftReply->abort();
 
     QUrl url(QStringLiteral(
         "https://api.live.bilibili.com/xlive/web-room/v1/giftPanel/roomGiftList"));
@@ -533,6 +535,9 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
                              && body.size() <= MaxGiftCatalogBytes;
     reply->deleteLater();
     m_giftCatalogReply.clear();
+
+    if (!m_roomRequested || m_roomId.isEmpty())
+        return;
 
     if (!transportOk) {
         if (m_core)
@@ -770,12 +775,14 @@ void BilibiliAdapter::disconnectRoom()
     m_timeout.stop();
     m_giftTimeout.stop();
 
-    if (m_roomInfoReply && !m_roomInfoReply->isFinished())
-        m_roomInfoReply->abort();
-    if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
-        m_giftCatalogReply->abort();
+    QPointer<QNetworkReply> roomReply = m_roomInfoReply;
+    QPointer<QNetworkReply> giftReply = m_giftCatalogReply;
     m_roomInfoReply.clear();
     m_giftCatalogReply.clear();
+    if (roomReply && !roomReply->isFinished())
+        roomReply->abort();
+    if (giftReply && !giftReply->isFinished())
+        giftReply->abort();
 
     if (m_webSocket.state() != QAbstractSocket::UnconnectedState)
         m_webSocket.close();
