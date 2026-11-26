@@ -27,8 +27,8 @@ jobs:
             qt_arch: ''
             qt_host: ''
           - name: macOS
-            os: macos-14
-            qt_arch: clang_64
+            os: macos-15
+            qt_arch: clang_arm64
             qt_host: mac
 
     runs-on: ${{ matrix.os }}
