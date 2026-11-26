@@ -471,7 +471,7 @@ void PluginManager::handlePacket(const QString &pluginId, const QJsonObject &pac
         entry->packetWindowStartMs = now;
         entry->packetCount = 0;
     }
-    if (++entry->packetCount > 100) {
+    if (++entry->packetCount > PluginProtocol::MaxPacketsPerSecond) {
         stopPlugin(pluginId);
         return;
     }
@@ -497,7 +497,7 @@ void PluginManager::handleRequest(Entry *entry, const QJsonObject &packet)
         entry->requestWindowStartMs = now;
         entry->requestCount = 0;
     }
-    if (++entry->requestCount > 30) {
+    if (++entry->requestCount > PluginProtocol::MaxRequestsPerSecond) {
         stopPlugin(entry->id);
         return;
     }
