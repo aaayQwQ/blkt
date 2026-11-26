@@ -358,7 +358,11 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     socketUrl.setHost(host);
     socketUrl.setPort(port);
     socketUrl.setPath(QStringLiteral("/sub"));
-    m_webSocket.open(socketUrl);
+
+    QNetworkRequest socketRequest(socketUrl);
+    socketRequest.setRawHeader("Origin", "https://live.bilibili.com");
+    socketRequest.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    m_webSocket.open(socketRequest);
 }
 
 void BilibiliAdapter::sendAuthPacket()
@@ -390,8 +394,10 @@ void BilibiliAdapter::sendHeartbeat()
 
 void BilibiliAdapter::handleBinaryMessage(const QByteArray &message)
 {
-    if (message.size() > MaxWebSocketPacketBytes)
+    if (message.size() > MaxWebSocketPacketBytes) {
+        m_webSocket.abort();
         return;
+    }
     handlePacketData(message, 0);
 }
 
