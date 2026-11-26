@@ -238,7 +238,7 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
         QStringLiteral("BLKT"), entry->engine->newQObject(entry->api));
 
     const QJSValue result = runWithScriptDeadline(entry->engine, [&] {
-        return entry->engine->evaluate(sourceText, scriptInfo.fileName());
+        return entry->engine->evaluate(QStringLiteral("\\\"use strict\\\";\\n") + sourceText, scriptInfo.fileName());
     });
     if (result.isError()) {
         emit m_core->logMessage(QStringLiteral("Plugin %1 failed at line %2: %3")
