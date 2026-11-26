@@ -137,11 +137,20 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             scheduleReconnect();
         }
     });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     connect(&m_webSocket, &QWebSocket::errorOccurred, this,
             [this](QAbstractSocket::SocketError) {
         if (m_core)
             emit m_core->logMessage(QStringLiteral("Bilibili live WebSocket error"));
     });
+#else
+    connect(&m_webSocket,
+            qOverload<QAbstractSocket::SocketError>(&QWebSocket::error),
+            this, [this](QAbstractSocket::SocketError) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("Bilibili live WebSocket error"));
+    });
+#endif
 }
 
 BilibiliAdapter::~BilibiliAdapter()
