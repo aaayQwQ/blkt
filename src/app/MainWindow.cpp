@@ -55,6 +55,7 @@ MainWindow::MainWindow(Core *core, BilibiliAdapter *bilibili,
     m_connectButton = new QPushButton(QStringLiteral("Connect"), accountGroup);
     m_disconnectButton = new QPushButton(QStringLiteral("Disconnect"), accountGroup);
     m_disconnectButton->setEnabled(false);
+    m_connectButton->setEnabled(false);
     roomRow->addWidget(m_roomIdEdit, 1);
     roomRow->addWidget(m_connectButton);
     roomRow->addWidget(m_disconnectButton);
@@ -111,10 +112,21 @@ MainWindow::MainWindow(Core *core, BilibiliAdapter *bilibili,
     m_statusTimer = new QTimer(this);
     m_statusTimer->setInterval(500);
     connect(m_statusTimer, &QTimer::timeout, this, [this] {
-        if (m_bilibili && m_bilibili->isRoomConnected())
+        if (!m_bilibili)
+            return;
+        if (m_bilibili->isRoomConnected()) {
             m_roomStatusLabel->setText(QStringLiteral("Live room: connected"));
-        else if (m_disconnectButton->isEnabled())
+            m_connectButton->setEnabled(false);
+            m_disconnectButton->setEnabled(true);
+        } else if (m_bilibili->isRoomRequested()) {
             m_roomStatusLabel->setText(QStringLiteral("Live room: connecting / reconnecting"));
+            m_connectButton->setEnabled(false);
+            m_disconnectButton->setEnabled(true);
+        } else {
+            m_roomStatusLabel->setText(QStringLiteral("Live room: disconnected"));
+            m_connectButton->setEnabled(m_bilibili->isAuthenticated());
+            m_disconnectButton->setEnabled(false);
+        }
     });
     m_statusTimer->start();
 
