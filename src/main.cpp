@@ -89,6 +89,8 @@ int main(int argc, char *argv[])
     }
 
     blkt::Core core;
+    QObject::connect(&core, &blkt::Core::logMessage, &app,
+                     [](const QString &message) { writeLog(message); });
     const QString pluginDirectory = QDir(appDirectory).filePath(QStringLiteral("plugins"));
     blkt::ScriptPluginManager plugins(
         &core, pluginDirectory, allowedPlugins, sendMessagePlugins);
@@ -99,8 +101,6 @@ int main(int argc, char *argv[])
     }
 
     blkt::BilibiliAdapter bilibili(&core);
-    QObject::connect(&core, &blkt::Core::logMessage, &app,
-                     [](const QString &message) { writeLog(message); });
     QObject::connect(&bilibili, &blkt::BilibiliAdapter::authenticationFinished,
                      &app, [&](bool success, const QString &accountName,
                                quint64 accountId, const QString &reason) {
