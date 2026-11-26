@@ -291,6 +291,7 @@ void BilibiliAdapter::requestDanmuInfo()
     m_roomInfoReply = m_network.get(request);
     if (!m_roomInfoReply) {
         emit m_core->logMessage(QStringLiteral("Could not request live room connection information"));
+        scheduleReconnect();
         return;
     }
 
@@ -371,6 +372,7 @@ void BilibiliAdapter::handleDanmuInfo(QNetworkReply *reply)
     QNetworkRequest socketRequest(socketUrl);
     socketRequest.setRawHeader("Origin", "https://live.bilibili.com");
     socketRequest.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    m_authTimeout.start();
     m_webSocket.open(socketRequest);
 }
 
