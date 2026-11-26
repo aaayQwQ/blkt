@@ -3,6 +3,8 @@
 #include "../../core/Guard.hpp"
 
 #include <QDateTime>
+#include <QCryptographicHash>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -183,6 +185,10 @@ bool BilibiliAdapter::authenticate(const QByteArray &cookie, const QString &csrf
 
     m_cookie = cookie;
     m_csrf = csrf;
+    const QRegularExpression buvidPattern(
+        QStringLiteral("(?:^|;\\s*)buvid3=([^;\\s]+)"));
+    const auto buvidMatch = buvidPattern.match(cookieText);
+    m_buvid3 = buvidMatch.hasMatch() ? buvidMatch.captured(1) : QString();
 
     QNetworkRequest request(QUrl(QStringLiteral(
         "https://api.bilibili.com/x/web-interface/nav")));
@@ -255,6 +261,7 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
 
     m_accountId = mid;
     m_accountName = name;
+    m_wbiMixinKey = buildWbiMixinKey(data.value(QStringLiteral("wbi_img")).toObject());
     m_authenticated = true;
 
     emit authenticationFinished(true, m_accountName, m_accountId,
@@ -263,13 +270,67 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
 
 bool BilibiliAdapter::connectRoom(const QString &roomId)
 {
-    if (!m_authenticated || m_roomRequested || !Guard::validRoomId(roomId))
+    if (!m_authenticated || m_roomRequested || !Guard::validRoomId(roomId)
+        || m_buvid3.isEmpty() || m_wbiMixinKey.isEmpty())
         return false;
 
     m_roomId = roomId;
     m_roomRequested = true;
     requestDanmuInfo();
     return true;
+}
+
+QString BilibiliAdapter::buildWbiMixinKey(const QJsonObject &wbiImage) const
+{
+    const QString imageUrl = wbiImage.value(QStringLiteral("img_url")).toString();
+    const QString subUrl = wbiImage.value(QStringLiteral("sub_url")).toString();
+    const QString imageKey = QFileInfo(QUrl(imageUrl).path()).completeBaseName();
+    const QString subKey = QFileInfo(QUrl(subUrl).path()).completeBaseName();
+    if (imageKey.size() != 32 || subKey.size() != 32)
+        return {};
+
+    static constexpr int permutation[64] = {
+        46, 47, 18, 2, 53, 8, 23, 32, 15, 50, 10, 31, 58, 3, 45, 35,
+        27, 43, 5, 49, 33, 9, 42, 19, 29, 28, 14, 39, 12, 38, 41, 13,
+        37, 48, 7, 16, 24, 55, 40, 61, 26, 17, 0, 1, 60, 51, 30, 4,
+        22, 25, 54, 21, 56, 59, 6, 63, 57, 62, 11, 36, 20, 34, 44, 52
+    };
+
+    const QString raw = imageKey + subKey;
+    QString mixed;
+    mixed.reserve(32);
+    for (int i = 0; i < 32; ++i)
+        mixed.append(raw.at(permutation[i]));
+    return mixed;
+}
+
+QMap<QString, QString> BilibiliAdapter::signWbiParameters(
+    QMap<QString, QString> parameters) const
+{
+    if (m_wbiMixinKey.isEmpty())
+        return {};
+
+    parameters.insert(QStringLiteral("wts"),
+                      QString::number(QDateTime::currentSecsSinceEpoch()));
+
+    QStringList encoded;
+    encoded.reserve(parameters.size());
+    static const QRegularExpression forbidden(QStringLiteral("[!'()*]"));
+    for (auto it = parameters.cbegin(); it != parameters.cend(); ++it) {
+        QString value = it.value();
+        value.remove(forbidden);
+        const QByteArray key = QUrl::toPercentEncoding(it.key());
+        const QByteArray encodedValue = QUrl::toPercentEncoding(value);
+        encoded.append(QString::fromLatin1(key) + QLatin1Char('=')
+                       + QString::fromLatin1(encodedValue));
+    }
+
+    const QByteArray source = encoded.join(QLatin1Char('&')).toUtf8()
+                              + m_wbiMixinKey.toUtf8();
+    parameters.insert(QStringLiteral("w_rid"),
+                      QString::fromLatin1(
+                          QCryptographicHash::hash(source, QCryptographicHash::Md5).toHex()));
+    return parameters;
 }
 
 void BilibiliAdapter::requestDanmuInfo()
@@ -279,8 +340,12 @@ void BilibiliAdapter::requestDanmuInfo()
 
     QUrl url(QStringLiteral("https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo"));
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("id"), m_roomId);
-    query.addQueryItem(QStringLiteral("type"), QStringLiteral("0"));
+    const QMap<QString, QString> parameters = signWbiParameters({
+        {QStringLiteral("id"), m_roomId},
+        {QStringLiteral("type"), QStringLiteral("0")}
+    });
+    for (auto it = parameters.cbegin(); it != parameters.cend(); ++it)
+        query.addQueryItem(it.key(), it.value());
     url.setQuery(query);
 
     QNetworkRequest request(url);
@@ -385,6 +450,7 @@ void BilibiliAdapter::sendAuthPacket()
     auth.insert(QStringLiteral("uid"), static_cast<double>(m_accountId));
     auth.insert(QStringLiteral("roomid"), static_cast<double>(m_roomId.toULongLong()));
     auth.insert(QStringLiteral("protover"), 2);
+    auth.insert(QStringLiteral("buvid"), m_buvid3);
     auth.insert(QStringLiteral("platform"), QStringLiteral("web"));
     auth.insert(QStringLiteral("type"), 2);
     auth.insert(QStringLiteral("key"), m_danmuToken);
@@ -553,6 +619,10 @@ void BilibiliAdapter::clearCredentials()
     m_cookie.clear();
     m_csrf.fill(QChar(u'\0'));
     m_csrf.clear();
+    m_buvid3.fill(QChar(u'\0'));
+    m_buvid3.clear();
+    m_wbiMixinKey.fill(QChar(u'\0'));
+    m_wbiMixinKey.clear();
 }
 
 bool BilibiliAdapter::isAuthenticated() const
