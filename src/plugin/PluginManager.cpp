@@ -460,6 +460,16 @@ void PluginManager::handlePacket(const QString &pluginId, const QJsonObject &pac
         return;
     }
 
+    const qint64 now = m_clock.elapsed();
+    if (now - entry->packetWindowStartMs >= 1000) {
+        entry->packetWindowStartMs = now;
+        entry->packetCount = 0;
+    }
+    if (++entry->packetCount > 100) {
+        stopPlugin(pluginId);
+        return;
+    }
+
     if (type == QStringLiteral("request"))
         handleRequest(entry, packet);
     else if (type == QStringLiteral("log")) {
