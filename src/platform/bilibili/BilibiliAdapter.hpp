@@ -39,6 +39,8 @@ signals:
 private:
     void finishAuthentication(QNetworkReply *reply);
     void clearCredentials();
+    void requestRoomInit();
+    void handleRoomInit(QNetworkReply *reply);
     void requestDanmuInfo();
     QString buildWbiMixinKey(const QJsonObject &wbiImage) const;
     QMap<QString, QString> signWbiParameters(QMap<QString, QString> parameters) const;
@@ -73,6 +75,7 @@ private:
     QString m_buvid3;
     bool m_roomConnected = false;
     bool m_roomRequested = false;
+    bool m_roomResolved = false;
     int m_reconnectAttempt = 0;
     bool m_authenticated = false;
 
