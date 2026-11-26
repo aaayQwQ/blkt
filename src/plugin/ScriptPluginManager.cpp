@@ -4,6 +4,7 @@
 #include "../core/Guard.hpp"
 
 #include <QFile>
+#include <QElapsedTimer>
 #include <QRegularExpression>
 #include <atomic>
 #include <chrono>
@@ -16,7 +17,9 @@ namespace blkt {
 namespace {
 constexpr qint64 MaxScriptBytes = 512 * 1024;
 constexpr int MaxPlugins = 16;
-constexpr int MaxHandlersPerEvent = 32;
+constexpr int MaxHandlersPerEvent = 8;
+constexpr int MaxCallbacksPerEvent = 64;
+constexpr int EventExecutionBudgetMs = 250;
 constexpr int ScriptDeadlineMs = 250;
 
 bool safePluginId(const QString &id)
@@ -25,7 +28,7 @@ bool safePluginId(const QString &id)
     return pattern.match(id).hasMatch();
 }
 
-QJSValue runWithScriptDeadline(QJSEngine *engine,
+QJSValue runWithScriptDeadline(QJSEngine *engine, int timeoutMs,
                                const std::function<QJSValue()> &operation)
 {
     if (!engine)
@@ -36,7 +39,7 @@ QJSValue runWithScriptDeadline(QJSEngine *engine,
     bool finished = false;
     std::thread watchdog([&] {
         std::unique_lock<std::mutex> lock(mutex);
-        if (!condition.wait_for(lock, std::chrono::milliseconds(ScriptDeadlineMs),
+        if (!condition.wait_for(lock, std::chrono::milliseconds(qMax(1, timeoutMs)),
                                 [&] { return finished; })) {
             engine->setInterrupted(true);
         }
@@ -107,35 +110,59 @@ void ScriptPluginApi::log(const QString &message)
 {
     if (m_disabled)
         return;
-    const QString safe = Guard::cleanText(message, 512);
+    const QString safe = Guard::cleanLogText(message, 512);
     if (!safe.isEmpty())
         emit logMessage(QStringLiteral("Plugin %1: %2").arg(m_pluginId, safe));
 }
 
-void ScriptPluginApi::dispatch(const QString &eventName, const QVariantMap &event)
+bool ScriptPluginApi::dispatch(const QString &eventName, const QVariantMap &event,
+                                QElapsedTimer &eventTimer, int &callbacksRemaining)
 {
     if (!m_engine || m_disabled)
-        return;
+        return true;
+
     const QJSValue argument = m_engine->toScriptValue(event);
     const auto handlers = m_handlers.value(eventName);
     for (const QJSValue &handler : handlers) {
+        const qint64 elapsed = eventTimer.elapsed();
+        if (callbacksRemaining <= 0 || elapsed >= EventExecutionBudgetMs) {
+            emit logMessage(QStringLiteral(
+                "Plugin event dispatch budget exhausted; remaining callbacks skipped"));
+            return false;
+        }
+
+        --callbacksRemaining;
+        const int remainingMs = EventExecutionBudgetMs - static_cast<int>(elapsed);
         const QJSValue result = runWithScriptDeadline(
-            m_engine, [&handler, &argument] { return handler.call({argument}); });
+            m_engine, qMin(ScriptDeadlineMs, remainingMs),
+            [&handler, &argument] { return handler.call({argument}); });
+
+        if (eventTimer.elapsed() >= EventExecutionBudgetMs) {
+            m_disabled = true;
+            m_handlers.clear();
+            emit logMessage(QStringLiteral(
+                "Plugin %1 disabled after exhausting the event execution budget")
+                .arg(m_pluginId));
+            return false;
+        }
+
         if (result.isError()) {
             ++m_callbackFailures;
+            const QString error = Guard::cleanLogText(result.toString(), 200);
             emit logMessage(QStringLiteral("Plugin %1 callback error (%2/3): %3")
-                .arg(m_pluginId).arg(m_callbackFailures).arg(result.toString().left(200)));
+                .arg(m_pluginId).arg(m_callbackFailures).arg(error));
             if (m_callbackFailures >= 3) {
                 m_disabled = true;
                 m_handlers.clear();
                 emit logMessage(QStringLiteral("Plugin %1 disabled after repeated script failures")
                                     .arg(m_pluginId));
-                return;
+                return true;
             }
         } else {
             m_callbackFailures = 0;
         }
     }
+    return true;
 }
 
 ScriptPluginManager::ScriptPluginManager(Core *core, const QString &directory,
@@ -237,7 +264,7 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
     entry->engine->globalObject().setProperty(
         QStringLiteral("BLKT"), entry->engine->newQObject(entry->api));
 
-    const QJSValue result = runWithScriptDeadline(entry->engine, [&] {
+    const QJSValue result = runWithScriptDeadline(entry->engine, ScriptDeadlineMs, [&] {
         return entry->engine->evaluate(QStringLiteral("\"use strict\";\n") + sourceText, scriptInfo.fileName());
     });
     if (result.isError()) {
@@ -261,9 +288,17 @@ void ScriptPluginManager::dispatchMessage(const MessageEvent &event)
         {QStringLiteral("user"), event.user},
         {QStringLiteral("text"), event.text},
         {QStringLiteral("timestamp"), static_cast<qlonglong>(event.timestamp)}};
-    for (Entry *entry : m_plugins)
-        if (entry && entry->api)
-            entry->api->dispatch(QStringLiteral("message"), payload);
+    QElapsedTimer eventTimer;
+    eventTimer.start();
+    int callbacksRemaining = MaxCallbacksPerEvent;
+    for (Entry *entry : m_plugins) {
+        if (eventTimer.elapsed() >= EventExecutionBudgetMs || callbacksRemaining <= 0)
+            break;
+        if (entry && entry->api
+            && !entry->api->dispatch(QStringLiteral("message"), payload,
+                                     eventTimer, callbacksRemaining))
+            break;
+    }
 }
 
 void ScriptPluginManager::dispatchGift(const GiftEvent &event)
@@ -277,9 +312,17 @@ void ScriptPluginManager::dispatchGift(const GiftEvent &event)
         {QStringLiteral("totalCoin"), QString::number(event.totalCoin)},
         {QStringLiteral("coinType"), event.coinType},
         {QStringLiteral("timestamp"), static_cast<qlonglong>(event.timestamp)}};
-    for (Entry *entry : m_plugins)
-        if (entry && entry->api)
-            entry->api->dispatch(QStringLiteral("gift"), payload);
+    QElapsedTimer eventTimer;
+    eventTimer.start();
+    int callbacksRemaining = MaxCallbacksPerEvent;
+    for (Entry *entry : m_plugins) {
+        if (eventTimer.elapsed() >= EventExecutionBudgetMs || callbacksRemaining <= 0)
+            break;
+        if (entry && entry->api
+            && !entry->api->dispatch(QStringLiteral("gift"), payload,
+                                     eventTimer, callbacksRemaining))
+            break;
+    }
 }
 
 void ScriptPluginManager::unloadPlugin(const QString &id)
