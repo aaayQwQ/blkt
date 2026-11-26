@@ -561,7 +561,7 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
     }
 
     QList<GiftInfo> catalog;
-    catalog.reserve(qMin(gifts.size(), 10000));
+    catalog.reserve(qMin<qsizetype>(gifts.size(), 10000));
     for (const QJsonValue &value : gifts) {
         if (catalog.size() >= 10000)
             break;
