@@ -9,7 +9,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
-#include <QRegularExpression>
+#include <QRegularExpression>\n#include <QSet>\n#include <QProcessEnvironment>
 #include <QTextStream>
 
 namespace blkt {
@@ -329,8 +329,11 @@ bool PluginManager::launchPlugin(const QFileInfo &file)
     });
     connect(process, &QProcess::errorOccurred, this,
             [this, id](QProcess::ProcessError error) {
-        if (error == QProcess::FailedToStart && m_core)
-            emit m_core->logMessage(QStringLiteral("Plugin process could not start: %1").arg(id));
+        if (error == QProcess::FailedToStart) {
+            if (m_core)
+                emit m_core->logMessage(QStringLiteral("Plugin process could not start: %1").arg(id));
+            stopPlugin(id);
+        }
     });
 
     process->setProcessChannelMode(QProcess::SeparateChannels);
@@ -493,34 +496,36 @@ QStringList PluginManager::permissionsFor(Permissions permissions) const
 
 void PluginManager::stopPlugin(const QString &pluginId)
 {
-    Entry *entry = m_plugins.value(pluginId, nullptr);
-    if (!entry || entry->stopping)
+    Entry *entry = m_plugins.take(pluginId);
+    if (!entry)
         return;
 
     entry->stopping = true;
     entry->ready = false;
-    if (entry->readyTimer)
-        entry->readyTimer->stop();
+    QProcess *process = entry->process.data();
 
-    if (!entry->process || entry->process->state() == QProcess::NotRunning) {
-        if (entry->process)
-            entry->process->deleteLater();
-        m_plugins.remove(pluginId);
-        delete entry;
-        return;
+    if (process) {
+        // Prevent the finished callback from deleting Entry while this
+        // synchronous, bounded shutdown path is still using it.
+        disconnect(process, nullptr, this, nullptr);
+        if (process->state() != QProcess::NotRunning) {
+            QJsonObject shutdown;
+            shutdown.insert(QStringLiteral("type"), QStringLiteral("shutdown"));
+            const QByteArray packet =
+                QJsonDocument(shutdown).toJson(QJsonDocument::Compact) + '\\n';
+            process->write(packet);
+            process->waitForBytesWritten(100);
+            if (!process->waitForFinished(GracefulStopMs)) {
+                process->terminate();
+                if (!process->waitForFinished(250)) {
+                    process->kill();
+                    process->waitForFinished(500);
+                }
+            }
+        }
+        process->deleteLater();
     }
 
-    QJsonObject shutdown;
-    shutdown.insert(QStringLiteral("type"), QStringLiteral("shutdown"));
-    sendPacket(entry, shutdown);
-    entry->stopTimer->start(GracefulStopMs);
+    delete entry;
 }
 
-void PluginManager::stopAll()
-{
-    const QStringList ids = m_plugins.keys();
-    for (const QString &id : ids)
-        stopPlugin(id);
-}
-
-} // namespace blkt
