@@ -125,7 +125,7 @@ The host replies with:
 }
 ```
 
-A successful gift lookup also contains a `result` object with `id`, `name`, `price`, and `coin_type`. Gift `price` is the platform value in thousandths of a yuan (divide by 1000 for yuan); `coin_type` identifies the currency. Unauthorized or invalid operations return `ok: false`.
+For `send_message`, `ok: true` means the host accepted the request for dispatch; the asynchronous Bilibili API response is reported in the host runtime log and is not yet correlated back to the worker. A successful gift lookup also contains a `result` object with `id`, `name`, `price`, and `coin_type`. Gift `price` is the platform value in thousandths of a yuan (divide by 1000 for yuan); `coin_type` identifies the currency. Unauthorized or invalid operations return `ok: false`.
 
 Permissions:
 
