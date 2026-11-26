@@ -29,7 +29,7 @@ A plugin is a directory under `plugins/` with `manifest.json` and `main.js`. It 
 
 API: `BLKT.on("message", callback)`, `BLKT.on("gift", callback)`, `BLKT.sendMessage(roomId,text)`, `BLKT.giftInfo(giftId)`, `BLKT.log(text)`.
 
-The embedded QJSEngine is not an OS sandbox. Scripts run in the host process and a non-terminating script can block the event loop. Only run code you trust. No Node.js `require`, process or filesystem API is exposed by default. Do not treat this as a hard security boundary.
+The embedded QJSEngine is not an OS sandbox. Each synchronous script evaluation/callback has a 250 ms execution deadline; repeated callback failures disable that plugin, and at most 16 plugins are loaded. This prevents simple infinite-loop scripts from permanently blocking the host, but it is not a hard CPU or memory quota. Scripts still execute in the host process. Only run code you trust. No Node.js `require`, process or filesystem API is exposed by default. Do not treat this as a hard security boundary.
 
 ## Credentials
 
