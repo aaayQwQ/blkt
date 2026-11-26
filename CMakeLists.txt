@@ -38,6 +38,10 @@ add_executable(blkt
     src/plugin/PluginManager.hpp
 )
 
+if(WIN32)
+    set_target_properties(blkt PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
+
 set_target_properties(blkt PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
 )
