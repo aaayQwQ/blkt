@@ -48,5 +48,16 @@ int main()
             "SESSDATA=raw-session; bili_jct=raw-csrf; buvid3=raw-device"))
         return 5;
 
+    QTemporaryFile bomFile;
+    const QByteArray bomCookie = QByteArray::fromHex("efbbbf")
+        + QByteArrayLiteral("SESSDATA=bom-session; bili_jct=bom-csrf; buvid3=bom-device");
+    if (!bomFile.open() || bomFile.write(bomCookie) != bomCookie.size())
+        return 6;
+    bomFile.flush();
+    if (!store.loadCookieFile(bomFile.fileName())
+        || store.cookieHeader() != QByteArrayLiteral(
+            "SESSDATA=bom-session; bili_jct=bom-csrf; buvid3=bom-device"))
+        return 7;
+
     return 0;
 }
