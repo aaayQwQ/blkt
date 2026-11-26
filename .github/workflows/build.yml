@@ -63,8 +63,14 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Install portable package
-        run: cmake --install build --prefix package --config Release
+      - name: Install portable package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake --install build --prefix "$env:GITHUB_WORKSPACE\\package" --config Release
+
+      - name: Install portable package (Unix)
+        if: runner.os != 'Windows'
+        run: cmake --install build --prefix "$GITHUB_WORKSPACE/package" --config Release
 
       - name: Archive portable package (Windows)
         if: runner.os == 'Windows'
@@ -109,7 +115,7 @@ jobs:
         run: ctest --test-dir build -C Release --output-on-failure
 
       - name: Install portable package
-        run: cmake --install build --prefix package --config Release
+        run: cmake --install build --prefix "$GITHUB_WORKSPACE/package" --config Release
 
       - name: Archive portable package
         run: tar -czf BLKT-macos-ARM64.tar.gz -C package .
