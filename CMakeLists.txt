@@ -54,26 +54,12 @@ else()
 endif()
 
 if(WIN32 OR APPLE)
-    set(deploy_script "${CMAKE_CURRENT_BINARY_DIR}/deploy-$<CONFIG>.cmake")
-    if(APPLE)
-        file(GENERATE OUTPUT "${deploy_script}" CONTENT "
-include(\"${QT_DEPLOY_SUPPORT}\")
-qt_deploy_runtime_dependencies(
-    EXECUTABLE \"$<TARGET_FILE_NAME:blkt>.app\"
-    VERBOSE
-)
-")
-    else()
-        file(GENERATE OUTPUT "${deploy_script}" CONTENT "
-include(\"${QT_DEPLOY_SUPPORT}\")
-qt_deploy_runtime_dependencies(
-    EXECUTABLE \"${QT_DEPLOY_BIN_DIR}/$<TARGET_FILE_NAME:blkt>\"
-    GENERATE_QT_CONF
-    VERBOSE
-)
-")
-    endif()
-    install(SCRIPT "${deploy_script}")
+    qt_generate_deploy_app_script(
+        TARGET blkt
+        OUTPUT_SCRIPT deploy_script
+    )
+    install(SCRIPT ${deploy_script})
+
 else()
     message(STATUS "Linux package requires Qt 6 Core, Network, WebSockets and Qml runtime libraries on the target system.")
 endif()
