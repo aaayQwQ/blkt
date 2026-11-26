@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QStringList>
 #include <QFileSystemWatcher>
+#include <QElapsedTimer>
 #include <QHash>
 #include <QPointer>
 #include <QProcess>
@@ -46,6 +47,8 @@ private:
         Permissions permissions = 0;
         bool ready = false;
         bool stopping = false;
+        qint64 requestWindowStartMs = 0;
+        int requestCount = 0;
         QTimer *readyTimer = nullptr;
     };
 
@@ -71,6 +74,7 @@ private:
     QHash<QString, Permissions> m_grants;
     QHash<QString, QByteArray> m_trustedHashes;
     bool m_running = false;
+    QElapsedTimer m_clock;
 
     static constexpr qsizetype MaxPacketBytes = 64 * 1024;
     static constexpr int ReadyTimeoutMs = 5000;
