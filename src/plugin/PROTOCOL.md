@@ -125,7 +125,7 @@ The host replies with:
 }
 ```
 
-A successful gift lookup also contains a `result` object with `id`, `name`, `price`, and `coin_type`. Unauthorized or invalid operations return `ok: false`.
+A successful gift lookup also contains a `result` object with `id`, `name`, `price`, and `coin_type`. Gift `price` is the platform value in thousandths of a yuan (divide by 1000 for yuan); `coin_type` identifies the currency. Unauthorized or invalid operations return `ok: false`.
 
 Permissions:
 
