@@ -161,7 +161,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             m_core->setRoomConnection(m_roomId, false);
 
         if (m_core) {
-            const QString closeReason = Guard::cleanText(m_webSocket.closeReason(), 160);
+            const QString closeReason = Guard::cleanLogText(m_webSocket.closeReason(), 160);
             const int closeCode = static_cast<int>(m_webSocket.closeCode());
             QString detail = QStringLiteral(
                 "Bilibili WebSocket disconnected: room %1, close code %2")
@@ -826,7 +826,7 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
                 "Gift catalog request failed: HTTP %1, API code %2, message '%3', JSON error '%4', data keys [%5], body bytes %6")
                 .arg(httpStatus).arg(apiCode).arg(apiMessage.left(160))
                 .arg(parseError.errorString().left(120))
-                .arg(dataKeys.join(QStringLiteral(", "))).arg(body.size()));
+                .arg(Guard::cleanLogText(dataKeys.join(QStringLiteral(", ")), 256)).arg(body.size()));
         }
         return;
     }
