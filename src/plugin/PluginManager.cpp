@@ -115,7 +115,7 @@ bool PluginManager::trustPlugin(const QString &fileName, const QByteArray &sha25
     const QFileInfo nameInfo(fileName);
     static const QRegularExpression digestPattern(QStringLiteral("^[A-Fa-f0-9]{64}$"));
     if (fileName.isEmpty() || fileName.contains(QLatin1Char('/'))
-        || fileName.contains(QLatin1Char('\\\\')) || nameInfo.fileName() != fileName
+        || fileName.contains(QLatin1Char('\\')) || nameInfo.fileName() != fileName
         || fileName == QStringLiteral(".") || fileName == QStringLiteral("..")
         || !digestPattern.match(QString::fromLatin1(sha256)).hasMatch())
         return false;
