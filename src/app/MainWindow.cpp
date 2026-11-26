@@ -23,6 +23,7 @@
 #include <QRegularExpression>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QTimer>
 
 namespace blkt {
 
@@ -106,6 +107,16 @@ MainWindow::MainWindow(Core *core, BilibiliAdapter *bilibili,
     root->addWidget(logGroup, 1);
 
     setCentralWidget(central);
+
+    m_statusTimer = new QTimer(this);
+    m_statusTimer->setInterval(500);
+    connect(m_statusTimer, &QTimer::timeout, this, [this] {
+        if (m_bilibili && m_bilibili->isRoomConnected())
+            m_roomStatusLabel->setText(QStringLiteral("Live room: connected"));
+        else if (m_disconnectButton->isEnabled())
+            m_roomStatusLabel->setText(QStringLiteral("Live room: connecting / reconnecting"));
+    });
+    m_statusTimer->start();
 
     connect(m_connectButton, &QPushButton::clicked,
             this, &MainWindow::connectRoom);
