@@ -4,13 +4,12 @@
 
 #include <QObject>
 #include <QDir>
+#include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QTimer>
 #include <QHash>
 #include <QPluginLoader>
-#include <QDateTime>
-
-#include <memory>
+#include <QSharedPointer>
 
 namespace blkt {
 
@@ -53,7 +52,7 @@ private:
     QDir m_directory;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
-    QHash<QString, std::unique_ptr<Entry>> m_plugins;
+    QHash<QString, QSharedPointer<Entry>> m_plugins;
     QHash<QString, Permissions> m_grants;
     bool m_running = false;
 };
