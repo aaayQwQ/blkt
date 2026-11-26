@@ -71,13 +71,21 @@ bool ScriptPluginApi::on(const QString &eventName, const QJSValue &callback)
          && hasPermission(m_permissions, Permission::ReceiveMessage))
         || (eventName == QStringLiteral("gift")
             && hasPermission(m_permissions, Permission::ReceiveGift));
-    if (m_disabled || !permitted || !callback.isCallable() || !m_engine)
+    if (m_disabled || !permitted || !callback.isCallable() || !m_engine) {
+        emit logMessage(QStringLiteral("Plugin %1 rejected event handler registration for '%2'")
+                            .arg(m_pluginId, eventName));
         return false;
+    }
 
     auto &handlers = m_handlers[eventName];
-    if (handlers.size() >= MaxHandlersPerEvent)
+    if (handlers.size() >= MaxHandlersPerEvent) {
+        emit logMessage(QStringLiteral("Plugin %1 reached the handler limit for '%2'")
+                            .arg(m_pluginId, eventName));
         return false;
+    }
     handlers.append(callback);
+    emit logMessage(QStringLiteral("Plugin %1 registered '%2' event handler")
+                        .arg(m_pluginId, eventName));
     return true;
 }
 
