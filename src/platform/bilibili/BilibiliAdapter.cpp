@@ -12,6 +12,7 @@
 #include <QNetworkRequest>
 #include <QRegularExpression>
 #include <QRandomGenerator>
+#include <QStringList>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -270,9 +271,13 @@ void BilibiliAdapter::finishAuthentication(QNetworkReply *reply)
 
 bool BilibiliAdapter::connectRoom(const QString &roomId)
 {
-    if (!m_authenticated || m_roomRequested || !Guard::validRoomId(roomId)
-        || m_buvid3.isEmpty() || m_wbiMixinKey.isEmpty())
+    if (!m_authenticated || m_roomRequested || !Guard::validRoomId(roomId))
         return false;
+    if (m_buvid3.isEmpty() || m_wbiMixinKey.isEmpty()) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("Live room connection requires buvid3 and WBI credentials from cookie.txt"));
+        return false;
+    }
 
     m_roomId = roomId;
     m_roomRequested = true;
