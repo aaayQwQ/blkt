@@ -54,6 +54,8 @@ private:
     quint64 m_sessionGeneration = 0;
     bool m_loggedIn = false;
     static constexpr qint64 SendIntervalMs = 1000;
+    static constexpr qsizetype MaxActiveRequests = 8;
+    static constexpr qsizetype MaxGiftCatalogItems = 10000;
     static constexpr qsizetype MaxReplyBytes = 64 * 1024;
 };
 
