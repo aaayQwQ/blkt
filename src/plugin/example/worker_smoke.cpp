@@ -1,3 +1,5 @@
+#include "../IPlugin.hpp"
+
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -20,7 +22,7 @@ int main(int argc, char *argv[])
 
     QJsonObject initialize;
     initialize.insert(QStringLiteral("type"), QStringLiteral("initialize"));
-    initialize.insert(QStringLiteral("protocol"), 1);
+    initialize.insert(QStringLiteral("protocol"), blkt::PluginProtocol::Version);
     initialize.insert(QStringLiteral("plugin_id"), QStringLiteral("echo"));
     initialize.insert(QStringLiteral("permissions"), QJsonArray{});
 
@@ -39,7 +41,7 @@ int main(int argc, char *argv[])
     }
 
     QByteArray response = worker.readLine(64 * 1024 + 1);
-    if (response.size() > 64 * 1024 || !response.endsWith('\n')) {
+    if (response.size() > blkt::PluginProtocol::MaxPacketBytes || !response.endsWith('\n')) {
         worker.kill();
         worker.waitForFinished(1000);
         return 6;
@@ -50,7 +52,7 @@ int main(int argc, char *argv[])
     const QJsonObject ready = document.object();
     if (parseError.error != QJsonParseError::NoError
         || ready.value(QStringLiteral("type")).toString() != QStringLiteral("ready")
-        || ready.value(QStringLiteral("protocol")).toInt(-1) != 1
+        || ready.value(QStringLiteral("protocol")).toInt(-1) != blkt::PluginProtocol::Version
         || ready.value(QStringLiteral("plugin_id")).toString() != QStringLiteral("echo")) {
         worker.kill();
         worker.waitForFinished(1000);
