@@ -11,6 +11,8 @@
 #include <QPluginLoader>
 #include <QSharedPointer>
 
+#include <memory>
+
 namespace blkt {
 
 class Core;
