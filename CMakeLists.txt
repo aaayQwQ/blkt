@@ -18,9 +18,12 @@ find_package(Qt6 6.4 REQUIRED COMPONENTS
     Core
     Network
     WebSockets
+    Widgets
 )
 
 add_executable(blkt
+    src/app/MainWindow.cpp
+    src/app/MainWindow.hpp
     src/main.cpp
     src/auth/CredentialStore.cpp
     src/auth/CredentialStore.hpp
@@ -39,6 +42,7 @@ target_link_libraries(blkt PRIVATE
     Qt6::Core
     Qt6::Network
     Qt6::WebSockets
+    Qt6::Widgets
 )
 
 if(MSVC)
