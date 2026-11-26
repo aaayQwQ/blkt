@@ -4,7 +4,10 @@
 
 #include <QObject>
 #include <QByteArray>
-#include <QDir>\n#include <QFileInfo>\n#include <QJsonObject>\n#include <QStringList>
+#include <QDir>
+#include <QFileInfo>
+#include <QJsonObject>
+#include <QStringList>
 #include <QFileSystemWatcher>
 #include <QHash>
 #include <QPointer>
