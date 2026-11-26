@@ -1,9 +1,7 @@
 #include "CredentialStore.hpp"
 
-#include <QFile>\n#include <QHash>
-#include <QRegularExpression>
-#include <QStringList>
-#include <QVector>
+#include <QFile>
+#include <QHash>
 
 namespace blkt {
 namespace {
