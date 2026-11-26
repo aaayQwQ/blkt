@@ -1136,6 +1136,11 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
 {
     const QString cmd = command.value(QStringLiteral("cmd")).toString();
     const QJsonObject data = command.value(QStringLiteral("data")).toObject();
+    if (m_core && !cmd.isEmpty() && m_commandDiagnosticCount < 16) {
+        ++m_commandDiagnosticCount;
+        emit m_core->logMessage(QStringLiteral("Bilibili live command decoded: %1").arg(
+            Guard::cleanLogText(cmd, 96)));
+    }
 
     if (cmd.startsWith(QStringLiteral("DANMU_MSG"))) {
         if (!m_core)
