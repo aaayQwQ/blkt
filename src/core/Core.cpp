@@ -194,10 +194,21 @@ std::optional<GiftInfo> Core::giftInfo(quint64 giftId) const
 void Core::replaceGiftCatalog(const QList<GiftInfo> &items)
 {
     QHash<quint64, GiftInfo> next;
+    qsizetype accepted = 0;
     for (const GiftInfo &item : items) {
+        if (accepted >= MaxGiftCatalogItems)
+            break;
         if (item.id == 0 || item.name.isEmpty() || item.name.size() > 128)
             continue;
-        next.insert(item.id, item);
+
+        GiftInfo safe = item;
+        safe.name = Guard::cleanText(safe.name, 128);
+        safe.coinType = Guard::cleanText(safe.coinType, 16);
+        if (safe.name.isEmpty())
+            continue;
+
+        next.insert(safe.id, safe);
+        ++accepted;
     }
     m_gifts.swap(next);
 }
