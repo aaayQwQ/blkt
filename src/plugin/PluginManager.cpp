@@ -9,7 +9,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
-#include <QRegularExpression>\n#include <QSet>\n#include <QProcessEnvironment>
+#include <QRegularExpression>
+#include <QSet>
+#include <QProcessEnvironment>
 #include <QTextStream>
 
 namespace blkt {
