@@ -232,9 +232,10 @@ void Core::replaceGiftCatalog(const QList<GiftInfo> &items)
 
 void Core::ingestMessage(const MessageEvent &event)
 {
-    if (!m_loggedIn)
+    if (!m_loggedIn || !m_roomConnected || event.roomId != m_activeRoomId)
         return;
     MessageEvent safe = event;
+    safe.roomId = Guard::cleanText(safe.roomId, 20);
     safe.user = Guard::cleanText(safe.user, 64);
     safe.text = Guard::cleanText(safe.text, 500);
     if (safe.user.isEmpty() || safe.text.isEmpty())
@@ -244,9 +245,11 @@ void Core::ingestMessage(const MessageEvent &event)
 
 void Core::ingestGift(const GiftEvent &event)
 {
-    if (!m_loggedIn || event.giftId == 0 || event.count == 0)
+    if (!m_loggedIn || !m_roomConnected || event.roomId != m_activeRoomId
+        || event.giftId == 0 || event.count == 0)
         return;
     GiftEvent safe = event;
+    safe.roomId = Guard::cleanText(safe.roomId, 20);
     safe.user = Guard::cleanText(safe.user, 64);
     safe.giftName = Guard::cleanText(safe.giftName, 128);
     safe.coinType = Guard::cleanText(safe.coinType, 16);
