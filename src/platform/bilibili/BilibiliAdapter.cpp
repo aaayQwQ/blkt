@@ -163,16 +163,18 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     });
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
     connect(&m_webSocket, &QWebSocket::errorOccurred, this,
-            [this](QAbstractSocket::SocketError) {
+            [this](QAbstractSocket::SocketError error) {
         if (m_core)
-            emit m_core->logMessage(QStringLiteral("Bilibili live WebSocket error"));
+            emit m_core->logMessage(QStringLiteral("Bilibili WebSocket error %1: %2")
+                .arg(static_cast<int>(error)).arg(m_webSocket.errorString()));
     });
 #else
     connect(&m_webSocket,
             qOverload<QAbstractSocket::SocketError>(&QWebSocket::error),
-            this, [this](QAbstractSocket::SocketError) {
+            this, [this](QAbstractSocket::SocketError error) {
         if (m_core)
-            emit m_core->logMessage(QStringLiteral("Bilibili live WebSocket error"));
+            emit m_core->logMessage(QStringLiteral("Bilibili WebSocket error %1: %2")
+                .arg(static_cast<int>(error)).arg(m_webSocket.errorString()));
     });
 #endif
 }
@@ -721,8 +723,11 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
         return;
     }
     m_giftTimeout.stop();
+    const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const QNetworkReply::NetworkError networkError = reply->error();
+    const QString networkErrorText = reply->errorString();
     const QByteArray body = reply->read(MaxGiftCatalogBytes + 1);
-    const bool transportOk = reply->error() == QNetworkReply::NoError
+    const bool transportOk = networkError == QNetworkReply::NoError
                              && body.size() <= MaxGiftCatalogBytes;
     reply->deleteLater();
     m_giftCatalogReply.clear();
@@ -732,7 +737,10 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
 
     if (!transportOk) {
         if (m_core)
-            emit m_core->logMessage(QStringLiteral("Gift catalog request failed"));
+            emit m_core->logMessage(QStringLiteral(
+                "Gift catalog transport failure: HTTP %1, Qt network error %2 (%3), bytes %4")
+                .arg(httpStatus).arg(static_cast<int>(networkError))
+                .arg(networkErrorText.left(160)).arg(body.size()));
         return;
     }
 
@@ -743,18 +751,29 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
     QJsonArray gifts = data.value(QStringLiteral("list")).toArray();
 
     if (gifts.isEmpty()) {
-        const QJsonObject giftConfig =
-            data.value(QStringLiteral("gift_config")).toObject();
-        const QJsonObject baseConfig =
-            giftConfig.value(QStringLiteral("base_config")).toObject();
+        const QJsonObject giftConfig = data.value(QStringLiteral("gift_config")).toObject();
+        const QJsonObject baseConfig = giftConfig.value(QStringLiteral("base_config")).toObject();
         gifts = baseConfig.value(QStringLiteral("list")).toArray();
     }
+    if (gifts.isEmpty())
+        gifts = data.value(QStringLiteral("gift_list")).toArray();
+    if (gifts.isEmpty())
+        gifts = data.value(QStringLiteral("gifts")).toArray();
 
-    if (parseError.error != QJsonParseError::NoError
-        || root.value(QStringLiteral("code")).toInt(-1) != 0
-        || gifts.isEmpty()) {
-        if (m_core)
-            emit m_core->logMessage(QStringLiteral("Gift catalog response was invalid or empty"));
+    const int apiCode = root.value(QStringLiteral("code")).toInt(-1);
+    if (parseError.error != QJsonParseError::NoError || apiCode != 0 || gifts.isEmpty()) {
+        QStringList dataKeys = data.keys();
+        if (dataKeys.size() > 16)
+            dataKeys = dataKeys.mid(0, 16);
+        const QString apiMessage = root.value(QStringLiteral("message")).toString(
+            root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message")));
+        if (m_core) {
+            emit m_core->logMessage(QStringLiteral(
+                "Gift catalog response rejected: HTTP %1, API code %2, message '%3', JSON error '%4', data keys [%5], body bytes %6")
+                .arg(httpStatus).arg(apiCode).arg(apiMessage.left(160))
+                .arg(parseError.errorString().left(120))
+                .arg(dataKeys.join(QStringLiteral(", "))).arg(body.size()));
+        }
         return;
     }
 
