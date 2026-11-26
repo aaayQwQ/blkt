@@ -170,7 +170,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             if (!closeReason.isEmpty())
                 detail += QStringLiteral(", reason '%1'").arg(closeReason);
             if (m_webSocket.error() != QAbstractSocket::UnknownSocketError) {
-                const QString errorText = Guard::cleanText(m_webSocket.errorString(), 160);
+                const QString errorText = Guard::cleanLogText(m_webSocket.errorString(), 160);
                 if (!errorText.isEmpty())
                     detail += QStringLiteral(", socket error '%1'").arg(errorText);
             }
@@ -196,7 +196,7 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
             this, [this](QAbstractSocket::SocketError error) {
         if (m_core)
             emit m_core->logMessage(QStringLiteral("Bilibili WebSocket error %1: %2")
-                .arg(static_cast<int>(error)).arg(m_webSocket.errorString()));
+                .arg(static_cast<int>(error)).arg(Guard::cleanLogText(m_webSocket.errorString(), 160)));
     });
 #endif
 }
@@ -765,7 +765,7 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
     m_giftTimeout.stop();
     const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const QNetworkReply::NetworkError networkError = reply->error();
-    const QString networkErrorText = reply->errorString();
+    const QString networkErrorText = Guard::cleanLogText(reply->errorString(), 160);
     const QByteArray body = reply->read(MaxGiftCatalogBytes + 1);
     const bool transportOk = networkError == QNetworkReply::NoError
                              && body.size() <= MaxGiftCatalogBytes;
@@ -820,7 +820,7 @@ void BilibiliAdapter::handleGiftCatalog(QNetworkReply *reply)
         if (dataKeys.size() > 16)
             dataKeys = dataKeys.mid(0, 16);
         const QString apiMessage = Guard::cleanLogText(root.value(QStringLiteral("message")).toString(
-            root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message")));
+            root.value(QStringLiteral("msg")).toString(QStringLiteral("no API message"))), 160);
         if (m_core) {
             emit m_core->logMessage(QStringLiteral(
                 "Gift catalog request failed: HTTP %1, API code %2, message '%3', JSON error '%4', data keys [%5], body bytes %6")
