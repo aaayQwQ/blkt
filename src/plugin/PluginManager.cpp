@@ -2,11 +2,11 @@
 #include "../core/Core.hpp"
 #include "../core/Guard.hpp"
 
-#include <QCoreApplication>
 #include <QFileInfo>
 #include <QLibrary>
 #include <QRegularExpression>
 #include <QSet>
+#include <QMetaObject>
 
 namespace blkt {
 
@@ -26,17 +26,31 @@ PluginManager::PluginManager(Core *core, const QString &directory, QObject *pare
         connect(m_core, &Core::messageReceived, this, [this](const MessageEvent &event) {
             const auto entries = m_plugins;
             for (const auto &entry : entries) {
-                if (entry && entry->active && entry->plugin
-                    && entry->permissions.testFlag(Permission::ReceiveMessage))
+                if (!entry || !entry->active || !entry->plugin
+                    || !entry->permissions.testFlag(Permission::ReceiveMessage))
+                    continue;
+                try {
                     entry->plugin->onMessage(event);
+                } catch (...) {
+                    const QString id = entry->context.pluginId;
+                    QMetaObject::invokeMethod(this, [this, id] { unloadPlugin(id); },
+                                              Qt::QueuedConnection);
+                }
             }
         });
         connect(m_core, &Core::giftReceived, this, [this](const GiftEvent &event) {
             const auto entries = m_plugins;
             for (const auto &entry : entries) {
-                if (entry && entry->active && entry->plugin
-                    && entry->permissions.testFlag(Permission::ReceiveGift))
+                if (!entry || !entry->active || !entry->plugin
+                    || !entry->permissions.testFlag(Permission::ReceiveGift))
+                    continue;
+                try {
                     entry->plugin->onGift(event);
+                } catch (...) {
+                    const QString id = entry->context.pluginId;
+                    QMetaObject::invokeMethod(this, [this, id] { unloadPlugin(id); },
+                                              Qt::QueuedConnection);
+                }
             }
         });
     }
@@ -45,12 +59,16 @@ PluginManager::PluginManager(Core *core, const QString &directory, QObject *pare
 PluginManager::~PluginManager()
 {
     stop();
+    m_lifetime.clear();
 }
 
 bool PluginManager::start()
 {
     if (m_running || !m_core)
         return false;
+
+    if (m_lifetime.isNull())
+        m_lifetime = QSharedPointer<int>::create(1);
 
     if (!m_directory.exists() && !QDir().mkpath(m_directory.absolutePath()))
         return false;
@@ -70,6 +88,7 @@ void PluginManager::stop()
         return;
 
     m_running = false;
+    m_lifetime.clear();
     m_debounce.stop();
     m_watcher.removePaths(m_watcher.files());
     m_watcher.removePaths(m_watcher.directories());
@@ -196,17 +215,26 @@ bool PluginManager::loadPlugin(const QFileInfo &file)
     entry->fileSize = file.size();
     entry->permissions = m_grants.value(id, Permissions(Permission::None));
     entry->active = true;
+    entry->context.pluginId = id;
 
     const QString pluginId = id;
-    entry->context.pluginId = id;
-    entry->context.sendMessage = [this, pluginId](const QString &roomId, const QString &text) {
+    const QWeakPointer<int> lifetime = m_lifetime;
+    entry->context.sendMessage = [this, pluginId, lifetime](
+                                     const QString &roomId, const QString &text) {
+        const auto alive = lifetime.toStrongRef();
+        if (!alive)
+            return false;
         const auto it = m_plugins.constFind(pluginId);
         if (!m_running || it == m_plugins.cend() || !it.value()->active
             || !it.value()->permissions.testFlag(Permission::SendMessage))
             return false;
         return m_core && m_core->sendMessage(roomId, text);
     };
-    entry->context.giftInfo = [this, pluginId](quint64 giftId) -> std::optional<GiftInfo> {
+    entry->context.giftInfo = [this, pluginId, lifetime](
+                                  quint64 giftId) -> std::optional<GiftInfo> {
+        const auto alive = lifetime.toStrongRef();
+        if (!alive)
+            return std::nullopt;
         const auto it = m_plugins.constFind(pluginId);
         if (!m_running || it == m_plugins.cend() || !it.value()->active
             || !it.value()->permissions.testFlag(Permission::GiftInfo))
