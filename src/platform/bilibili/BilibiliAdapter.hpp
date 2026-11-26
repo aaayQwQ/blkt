@@ -26,6 +26,7 @@ public:
     bool connectRoom(const QString &roomId);
     void disconnectRoom();
     bool isRoomConnected() const;
+    bool isRoomRequested() const;
     bool isAuthenticated() const;
     QString accountName() const;
     quint64 accountId() const;
