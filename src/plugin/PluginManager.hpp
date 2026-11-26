@@ -5,15 +5,11 @@
 #include <QObject>
 #include <QByteArray>
 #include <QDir>
-#include <QFileInfo>
 #include <QFileSystemWatcher>
-#include <QTimer>
 #include <QHash>
-#include <QPluginLoader>
-#include <QSharedPointer>
-#include <QTemporaryDir>
-
-#include <memory>
+#include <QPointer>
+#include <QProcess>
+#include <QTimer>
 
 namespace blkt {
 
@@ -28,47 +24,55 @@ public:
                            QObject *parent = nullptr);
     ~PluginManager() override;
 
+    // The directory must already exist. The manager never creates plugin folders/files.
     bool start();
     void stop();
+
     void setGrantedPermissions(const QString &pluginId, Permissions permissions);
 
-    // Explicitly trust a plugin binary by file name and its expected SHA-256 digest.
-    // The plugin directory must not be writable by untrusted users.
+    // Trust is volatile and must be granted again after each application restart.
     bool trustPlugin(const QString &fileName, const QByteArray &sha256);
     void revokePluginTrust(const QString &fileName);
 
 private:
     struct Entry {
-        // Keep the private staging directory alive longer than the loader.
-        std::unique_ptr<QTemporaryDir> stagingDirectory;
-        std::unique_ptr<QPluginLoader> loader;
-        IPlugin *plugin = nullptr;
-        PluginContext context;
-        Permissions permissions;
+        QPointer<QProcess> process;
+        QString id;
         QString canonicalPath;
-        qint64 modifiedMs = 0;
-        qint64 fileSize = 0;
-        bool active = false;
+        QByteArray inputBuffer;
+        Permissions permissions = 0;
+        bool ready = false;
+        bool stopping = false;
+        QTimer *readyTimer = nullptr;
+        QTimer *stopTimer = nullptr;
     };
 
     void scheduleSync();
     void syncDirectory();
-    bool loadPlugin(const QFileInfo &file);
-    void unloadPlugin(const QString &pluginId);
-    void unloadAll();
-    bool isTrustedPluginPath(const QFileInfo &file) const;
+    bool launchPlugin(const QFileInfo &file);
+    void stopPlugin(const QString &pluginId);
+    void stopAll();
+    bool isAllowedPluginFile(const QFileInfo &file) const;
     bool hasTrustedDigest(const QFileInfo &file) const;
+    bool sendPacket(Entry *entry, const QJsonObject &packet);
+    void consumeStdout(const QString &pluginId);
+    void handlePacket(const QString &pluginId, const QJsonObject &packet);
+    void handleRequest(Entry *entry, const QJsonObject &packet);
+    QStringList permissionsFor(Permissions permissions) const;
     QString platformSuffix() const;
 
     Core *m_core = nullptr;
     QDir m_directory;
     QFileSystemWatcher m_watcher;
     QTimer m_debounce;
-    QHash<QString, QSharedPointer<Entry>> m_plugins;
+    QHash<QString, Entry *> m_plugins;
     QHash<QString, Permissions> m_grants;
     QHash<QString, QByteArray> m_trustedHashes;
-    QSharedPointer<int> m_lifetime = QSharedPointer<int>::create(1);
     bool m_running = false;
+
+    static constexpr qsizetype MaxPacketBytes = 64 * 1024;
+    static constexpr int ReadyTimeoutMs = 5000;
+    static constexpr int GracefulStopMs = 1000;
 };
 
 } // namespace blkt
