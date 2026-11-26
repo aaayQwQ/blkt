@@ -58,6 +58,7 @@ private:
     quint64 m_sessionGeneration = 0;
     QString m_activeRoomId;
     bool m_roomConnected = false;
+    bool m_loggedFirstDanmakuDispatch = false;
     bool m_loggedIn = false;
     static constexpr qint64 SendIntervalMs = 1000;
     static constexpr qsizetype MaxActiveRequests = 8;
