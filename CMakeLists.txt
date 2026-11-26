@@ -84,7 +84,6 @@ if(WIN32)
                 --no-quick-import
                 --no-quick
                 --no-opengl
-                --include-soft-plugins
                 --skip-plugin-types
                 generic,imageformats,networkinformation,platforms,qmltooling,styles
         )
