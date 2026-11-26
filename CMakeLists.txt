@@ -108,3 +108,16 @@ add_test(
     NAME plugin_worker_handshake
     COMMAND blkt_worker_smoke "$<TARGET_FILE:blkt_echo_plugin>"
 )
+
+add_executable(blkt_guard_smoke
+    src/core/guard_smoke.cpp
+    src/core/Guard.cpp
+)
+set_target_properties(blkt_guard_smoke PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/tests"
+)
+target_link_libraries(blkt_guard_smoke PRIVATE Qt6::Core)
+add_test(
+    NAME security_guard_validation
+    COMMAND blkt_guard_smoke
+)
