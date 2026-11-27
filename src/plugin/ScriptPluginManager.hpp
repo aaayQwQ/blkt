@@ -4,7 +4,7 @@
 
 #include <QDir>
 #include <QFileInfo>
-#include <QHash>
+#include <QMap>
 #include <QJSEngine>
 #include <QJSValue>
 #include <QList>
@@ -75,7 +75,7 @@ private:
     QDir m_directory;
     QSet<QString> m_allowedIds;
     QSet<QString> m_sendMessageIds;
-    QHash<QString, Entry *> m_plugins;
+    QMap<QString, Entry *> m_plugins;
     bool m_started = false;
 };
 }

@@ -123,6 +123,20 @@ int main()
         && event.data.contains(QStringLiteral("uid")))
         return 18;
 
+    QJsonObject entryData;
+    entryData.insert(QStringLiteral("uname"), QStringLiteral("NewVisitor"));
+    entryData.insert(QStringLiteral("uid"), QStringLiteral("100"));
+    entryData.insert(QStringLiteral("copy_writing"), QStringLiteral("Welcome"));
+    entryData.insert(QStringLiteral("guard_level"), 1);
+    QJsonObject entry;
+    entry.insert(QStringLiteral("cmd"), QStringLiteral("ENTRY_EFFECT"));
+    entry.insert(QStringLiteral("data"), entryData);
+    if (!blkt::BilibiliProtocol::extractPlatformEvent(
+            entry, QStringLiteral("123"), 101, &event)
+        || event.type != QStringLiteral("entry")
+        || event.data.value(QStringLiteral("user")).toString() != QStringLiteral("NewVisitor"))
+        return 21;
+
     QJsonObject likeData;
     likeData.insert(QStringLiteral("click_count"), 7);
     likeData.insert(QStringLiteral("total_like"), 99);
@@ -223,6 +237,17 @@ int main()
         || event.type != QStringLiteral("roomStats")
         || event.data.value(QStringLiteral("watched")).toString() != QStringLiteral("888"))
         return 16;
+
+    QJsonObject onlineData;
+    onlineData.insert(QStringLiteral("count"), QStringLiteral("55"));
+    QJsonObject online;
+    online.insert(QStringLiteral("cmd"), QStringLiteral("ONLINE_RANK_COUNT"));
+    online.insert(QStringLiteral("data"), onlineData);
+    if (!blkt::BilibiliProtocol::extractPlatformEvent(
+            online, QStringLiteral("123"), 109, &event)
+        || event.type != QStringLiteral("online")
+        || event.data.value(QStringLiteral("count")).toString() != QStringLiteral("55"))
+        return 22;
 
     QJsonObject unknown;
     unknown.insert(QStringLiteral("cmd"), QStringLiteral("UNRECOGNIZED_PRIVATE_COMMAND"));

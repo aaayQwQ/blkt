@@ -23,7 +23,13 @@ int main(int argc, char *argv[])
         "BLKT.on('interaction', function(event) { BLKT.log('INTERACTION:' + event.user + ':' + event.uid); });\n"
         "BLKT.on('superChat', function(event) { BLKT.log('SUPERCHAT:' + event.user + ':' + event.price); });\n"
         "BLKT.on('comboGift', function(event) { BLKT.log('COMBO:' + event.giftName + ':' + event.count); });\n"
-        "BLKT.on('roomStats', function(event) { BLKT.log('ROOMSTATS:' + event.online + ':' + event.watched); });\n");
+        "BLKT.on('roomStats', function(event) { BLKT.log('ROOMSTATS:' + event.online + ':' + event.watched); });\n"
+        "BLKT.on('entry', function(event) { BLKT.log('ENTRY:' + event.user + ':' + event.text); });\n"
+        "BLKT.on('like', function(event) { BLKT.log('LIKE:' + event.count + ':' + event.total); });\n"
+        "BLKT.on('watched', function(event) { BLKT.log('WATCHED:' + event.count); });\n"
+        "BLKT.on('notice', function(event) { BLKT.log('NOTICE:' + event.text); });\n"
+        "BLKT.on('guard', function(event) { BLKT.log('GUARD:' + event.user + ':' + event.level); });\n"
+        "BLKT.on('online', function(event) { BLKT.log('ONLINE:' + event.count); });\n");
     if (allowed.write(script) != script.size())
         return 3;
     allowed.close();
@@ -110,6 +116,57 @@ int main(int argc, char *argv[])
     };
     core.ingestPlatformEvent(statsEvent);
 
+    blkt::PlatformEvent entryEvent;
+    entryEvent.roomId = QStringLiteral("123");
+    entryEvent.type = QStringLiteral("entry");
+    entryEvent.timestamp = 6;
+    entryEvent.data = {
+        {QStringLiteral("user"), QStringLiteral("NewVisitor")},
+        {QStringLiteral("text"), QStringLiteral("Welcome")}
+    };
+    core.ingestPlatformEvent(entryEvent);
+
+    blkt::PlatformEvent likeEvent;
+    likeEvent.roomId = QStringLiteral("123");
+    likeEvent.type = QStringLiteral("like");
+    likeEvent.timestamp = 7;
+    likeEvent.data = {
+        {QStringLiteral("count"), QStringLiteral("5")},
+        {QStringLiteral("total"), QStringLiteral("500")}
+    };
+    core.ingestPlatformEvent(likeEvent);
+
+    blkt::PlatformEvent watchedEvent;
+    watchedEvent.roomId = QStringLiteral("123");
+    watchedEvent.type = QStringLiteral("watched");
+    watchedEvent.timestamp = 8;
+    watchedEvent.data = {{QStringLiteral("count"), QStringLiteral("700")}};
+    core.ingestPlatformEvent(watchedEvent);
+
+    blkt::PlatformEvent noticeEvent;
+    noticeEvent.roomId = QStringLiteral("123");
+    noticeEvent.type = QStringLiteral("notice");
+    noticeEvent.timestamp = 9;
+    noticeEvent.data = {{QStringLiteral("text"), QStringLiteral("System notice")}};
+    core.ingestPlatformEvent(noticeEvent);
+
+    blkt::PlatformEvent guardEvent;
+    guardEvent.roomId = QStringLiteral("123");
+    guardEvent.type = QStringLiteral("guard");
+    guardEvent.timestamp = 10;
+    guardEvent.data = {
+        {QStringLiteral("user"), QStringLiteral("Captain")},
+        {QStringLiteral("level"), QStringLiteral("3")}
+    };
+    core.ingestPlatformEvent(guardEvent);
+
+    blkt::PlatformEvent onlineEvent;
+    onlineEvent.roomId = QStringLiteral("123");
+    onlineEvent.type = QStringLiteral("online");
+    onlineEvent.timestamp = 11;
+    onlineEvent.data = {{QStringLiteral("count"), QStringLiteral("66")}};
+    core.ingestPlatformEvent(onlineEvent);
+
     blkt::PlatformEvent wrongRoom = interactionEvent;
     wrongRoom.roomId = QStringLiteral("999");
     core.ingestPlatformEvent(wrongRoom);
@@ -121,7 +178,13 @@ int main(int argc, char *argv[])
         || !logs.contains(QStringLiteral("Plugin echo: INTERACTION:Visitor:42"))
         || !logs.contains(QStringLiteral("Plugin echo: SUPERCHAT:Supporter:30"))
         || !logs.contains(QStringLiteral("Plugin echo: COMBO:Snack:10"))
-        || !logs.contains(QStringLiteral("Plugin echo: ROOMSTATS:55:888")))
+        || !logs.contains(QStringLiteral("Plugin echo: ROOMSTATS:55:888"))
+        || !logs.contains(QStringLiteral("Plugin echo: ENTRY:NewVisitor:Welcome"))
+        || !logs.contains(QStringLiteral("Plugin echo: LIKE:5:500"))
+        || !logs.contains(QStringLiteral("Plugin echo: WATCHED:700"))
+        || !logs.contains(QStringLiteral("Plugin echo: NOTICE:System notice"))
+        || !logs.contains(QStringLiteral("Plugin echo: GUARD:Captain:3"))
+        || !logs.contains(QStringLiteral("Plugin echo: ONLINE:66")))
         return 10;
     for (const QString &entry : logs) {
         if (entry.contains(QStringLiteral("rawJson"))
