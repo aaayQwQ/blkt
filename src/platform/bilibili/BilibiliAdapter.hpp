@@ -52,6 +52,8 @@ private:
     void handleRoomEntry(QNetworkReply *reply);
     void sendViewerHeartbeat();
     void handleViewerHeartbeat(QNetworkReply *reply);
+    void sendUserOnlineHeartbeat();
+    void handleUserOnlineHeartbeat(QNetworkReply *reply);
     void handleRoomDetails(QNetworkReply *reply);
     void fetchGiftCatalog(int areaId, int parentAreaId);
     void handleGiftCatalog(QNetworkReply *reply);
@@ -69,6 +71,7 @@ private:
     QPointer<QNetworkReply> m_roomDetailsReply;
     QPointer<QNetworkReply> m_viewerEntryReply;
     QPointer<QNetworkReply> m_viewerHeartbeatReply;
+    QPointer<QNetworkReply> m_userOnlineHeartbeatReply;
     QWebSocket m_webSocket;
     QTimer m_heartbeat;
     QTimer m_authTimeout;
@@ -76,6 +79,7 @@ private:
     QTimer m_giftTimeout;
     QTimer m_roomDetailsTimeout;
     QTimer m_viewerHeartbeatTimer;
+    QTimer m_userOnlineHeartbeatTimer;
     QTimer m_viewerEntryRetryTimer;
     QTimer m_timeout;
     QByteArray m_cookie;
