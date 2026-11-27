@@ -4,6 +4,8 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QString>
+#include <initializer_list>
+#include "../../plugin/IPlugin.hpp"
 
 #include <cmath>
 #include <limits>
@@ -87,6 +89,217 @@ inline bool extractDanmaku(const QJsonObject &command,
 
     *user = parsedUser;
     *text = parsedText;
+    return true;
+}
+
+inline QString scalarString(const QJsonValue &value)
+{
+    if (value.isString())
+        return value.toString();
+    quint64 number = 0;
+    return toUnsigned(value, &number) ? QString::number(number) : QString();
+}
+
+inline QString firstScalar(const QJsonObject &object,
+                           std::initializer_list<QString> keys)
+{
+    for (const QString &key : keys) {
+        const QString value = scalarString(object.value(key));
+        if (!value.isEmpty())
+            return value;
+    }
+    return {};
+}
+
+inline QString userName(const QJsonObject &data)
+{
+    QString name = firstScalar(data, {
+        QStringLiteral("uname"), QStringLiteral("username"),
+        QStringLiteral("user_name")
+    });
+    if (!name.isEmpty())
+        return name;
+
+    QJsonObject user = data.value(QStringLiteral("user_info")).toObject();
+    if (user.isEmpty())
+        user = data.value(QStringLiteral("user")).toObject();
+    name = firstScalar(user, {
+        QStringLiteral("uname"), QStringLiteral("username"),
+        QStringLiteral("name")
+    });
+    if (!name.isEmpty())
+        return name;
+
+    const QJsonObject base = user.value(QStringLiteral("base")).toObject();
+    return firstScalar(base, {
+        QStringLiteral("name"), QStringLiteral("uname")
+    });
+}
+
+inline QString userId(const QJsonObject &data)
+{
+    QString id = firstScalar(data, {
+        QStringLiteral("uid"), QStringLiteral("mid")
+    });
+    if (!id.isEmpty())
+        return id;
+    QJsonObject user = data.value(QStringLiteral("user_info")).toObject();
+    if (user.isEmpty())
+        user = data.value(QStringLiteral("user")).toObject();
+    return firstScalar(user, {
+        QStringLiteral("uid"), QStringLiteral("mid")
+    });
+}
+
+inline bool extractPlatformEvent(const QJsonObject &command,
+                                const QString &roomId,
+                                quint64 timestamp,
+                                PlatformEvent *event)
+{
+    if (!event)
+        return false;
+
+    const QString cmd = command.value(QStringLiteral("cmd")).toString();
+    const QJsonObject data = command.value(QStringLiteral("data")).toObject();
+    PlatformEvent parsed;
+    parsed.roomId = roomId;
+    parsed.timestamp = timestamp;
+
+    auto setType = [&parsed](const QString &type) { parsed.type = type; };
+    auto put = [&parsed](const QString &key, const QString &value) {
+        if (!value.isEmpty())
+            parsed.data.insert(key, value);
+    };
+    const QString name = userName(data);
+    const QString uid = userId(data);
+
+    if (cmd == QStringLiteral("INTERACT_WORD")
+        || cmd == QStringLiteral("INTERACT_WORD_V2")) {
+        setType(QStringLiteral("interaction"));
+        put(QStringLiteral("user"), name);
+        put(QStringLiteral("uid"), uid);
+        put(QStringLiteral("subtype"), firstScalar(data, {
+            QStringLiteral("msg_type"), QStringLiteral("type")
+        }));
+        put(QStringLiteral("text"), firstScalar(data, {
+            QStringLiteral("msg"), QStringLiteral("message")
+        }));
+    } else if (cmd == QStringLiteral("ENTRY_EFFECT")
+               || cmd == QStringLiteral("WELCOME")
+               || cmd == QStringLiteral("WELCOME_GUARD")) {
+        setType(QStringLiteral("entry"));
+        put(QStringLiteral("user"), name);
+        put(QStringLiteral("uid"), uid);
+        put(QStringLiteral("text"), firstScalar(data, {
+            QStringLiteral("copy_writing"), QStringLiteral("msg"),
+            QStringLiteral("message")
+        }));
+        put(QStringLiteral("subtype"), cmd);
+        put(QStringLiteral("level"), firstScalar(data, {
+            QStringLiteral("guard_level"), QStringLiteral("privilege_type")
+        }));
+    } else if (cmd == QStringLiteral("LIKE_INFO_V3_CLICK")
+               || cmd == QStringLiteral("LIKE_INFO_V3_UPDATE")) {
+        setType(QStringLiteral("like"));
+        put(QStringLiteral("count"), firstScalar(data, {
+            QStringLiteral("click_count"), QStringLiteral("like_count"),
+            QStringLiteral("count")
+        }));
+        put(QStringLiteral("total"), firstScalar(data, {
+            QStringLiteral("total_like"), QStringLiteral("total")
+        }));
+        put(QStringLiteral("subtype"), cmd);
+    } else if (cmd == QStringLiteral("WATCHED_CHANGE")) {
+        setType(QStringLiteral("watched"));
+        put(QStringLiteral("count"), firstScalar(data, {
+            QStringLiteral("num"), QStringLiteral("count")
+        }));
+        put(QStringLiteral("text"), firstScalar(data, {
+            QStringLiteral("text"), QStringLiteral("show_text")
+        }));
+    } else if (cmd == QStringLiteral("NOTICE_MSG")) {
+        setType(QStringLiteral("notice"));
+        put(QStringLiteral("text"), firstScalar(data, {
+            QStringLiteral("msg_common"), QStringLiteral("msg_self"),
+            QStringLiteral("msg")
+        }));
+        put(QStringLiteral("subtype"), firstScalar(data, {
+            QStringLiteral("msg_type"), QStringLiteral("type")
+        }));
+    } else if (cmd == QStringLiteral("SUPER_CHAT_MESSAGE")
+               || cmd == QStringLiteral("SUPER_CHAT_MESSAGE_JPN")) {
+        setType(QStringLiteral("superChat"));
+        put(QStringLiteral("user"), name);
+        put(QStringLiteral("uid"), uid);
+        put(QStringLiteral("text"), firstScalar(data, {
+            QStringLiteral("message"), QStringLiteral("msg")
+        }));
+        put(QStringLiteral("price"), firstScalar(data, {
+            QStringLiteral("price")
+        }));
+        put(QStringLiteral("messageId"), firstScalar(data, {
+            QStringLiteral("message_id"), QStringLiteral("id")
+        }));
+    } else if (cmd == QStringLiteral("GUARD_BUY")) {
+        setType(QStringLiteral("guard"));
+        put(QStringLiteral("user"), name);
+        put(QStringLiteral("uid"), uid);
+        put(QStringLiteral("giftName"), firstScalar(data, {
+            QStringLiteral("gift_name"), QStringLiteral("giftName")
+        }));
+        put(QStringLiteral("count"), firstScalar(data, {
+            QStringLiteral("num"), QStringLiteral("count")
+        }));
+        put(QStringLiteral("price"), firstScalar(data, {
+            QStringLiteral("price")
+        }));
+        put(QStringLiteral("level"), firstScalar(data, {
+            QStringLiteral("guard_level"), QStringLiteral("level")
+        }));
+    } else if (cmd == QStringLiteral("COMBO_SEND")) {
+        setType(QStringLiteral("comboGift"));
+        put(QStringLiteral("user"), name);
+        put(QStringLiteral("uid"), uid);
+        put(QStringLiteral("giftName"), firstScalar(data, {
+            QStringLiteral("gift_name"), QStringLiteral("giftName")
+        }));
+        put(QStringLiteral("giftId"), firstScalar(data, {
+            QStringLiteral("gift_id"), QStringLiteral("giftId")
+        }));
+        put(QStringLiteral("count"), firstScalar(data, {
+            QStringLiteral("combo_num"), QStringLiteral("total_num"),
+            QStringLiteral("num")
+        }));
+        put(QStringLiteral("total"), firstScalar(data, {
+            QStringLiteral("combo_total_coin"), QStringLiteral("total_coin")
+        }));
+        put(QStringLiteral("coinType"), firstScalar(data, {
+            QStringLiteral("coin_type")
+        }));
+    } else if (cmd == QStringLiteral("ONLINE_RANK_COUNT")) {
+        setType(QStringLiteral("online"));
+        put(QStringLiteral("count"), firstScalar(data, {
+            QStringLiteral("count"), QStringLiteral("num")
+        }));
+    } else if (cmd == QStringLiteral("ROOM_REAL_TIME_MESSAGE_UPDATE")) {
+        setType(QStringLiteral("roomStats"));
+        put(QStringLiteral("online"), firstScalar(data, {
+            QStringLiteral("online")
+        }));
+        const QJsonObject watched = data.value(QStringLiteral("watched_show")).toObject();
+        put(QStringLiteral("watched"), firstScalar(watched, {
+            QStringLiteral("num")
+        }));
+        put(QStringLiteral("roomScore"), firstScalar(data, {
+            QStringLiteral("room_score")
+        }));
+    } else {
+        return false;
+    }
+
+    if (parsed.data.isEmpty())
+        return false;
+    *event = parsed;
     return true;
 }
 
