@@ -35,11 +35,13 @@ public:
     // Called only by the trusted platform adapter after protocol validation.
     void ingestMessage(const MessageEvent &event);
     void ingestGift(const GiftEvent &event);
+    void ingestPlatformEvent(const PlatformEvent &event);
     void replaceGiftCatalog(const QList<GiftInfo> &items);
 
 signals:
     void messageReceived(const blkt::MessageEvent &event);
     void giftReceived(const blkt::GiftEvent &event);
+    void platformEventReceived(const blkt::PlatformEvent &event);
     void logMessage(const QString &message);
     void loginStateChanged(bool loggedIn);
 
@@ -70,3 +72,4 @@ private:
 
 Q_DECLARE_METATYPE(blkt::MessageEvent)
 Q_DECLARE_METATYPE(blkt::GiftEvent)
+Q_DECLARE_METATYPE(blkt::PlatformEvent)

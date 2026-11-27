@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QTimer>
+#include <limits>
 
 namespace blkt {
 
@@ -17,6 +18,7 @@ Core::Core(QObject *parent)
 {
     qRegisterMetaType<blkt::MessageEvent>();
     qRegisterMetaType<blkt::GiftEvent>();
+    qRegisterMetaType<blkt::PlatformEvent>();
     m_clock.start();
 }
 
@@ -289,6 +291,53 @@ void Core::ingestGift(const GiftEvent &event)
     if (safe.user.isEmpty() || safe.giftName.isEmpty())
         return;
     emit giftReceived(safe);
+}
+
+void Core::ingestPlatformEvent(const PlatformEvent &event)
+{
+    static const QSet<QString> supportedTypes{
+        QStringLiteral("interaction"), QStringLiteral("entry"),
+        QStringLiteral("like"), QStringLiteral("watched"),
+        QStringLiteral("notice"), QStringLiteral("superChat"),
+        QStringLiteral("guard"), QStringLiteral("comboGift"),
+        QStringLiteral("online"), QStringLiteral("roomStats")
+    };
+    static const QSet<QString> supportedFields{
+        QStringLiteral("user"), QStringLiteral("uid"),
+        QStringLiteral("text"), QStringLiteral("subtype"),
+        QStringLiteral("count"), QStringLiteral("total"),
+        QStringLiteral("price"), QStringLiteral("level"),
+        QStringLiteral("messageId"), QStringLiteral("giftId"),
+        QStringLiteral("giftName"), QStringLiteral("coinType"),
+        QStringLiteral("online"), QStringLiteral("watched"),
+        QStringLiteral("roomScore")
+    };
+
+    if (!m_loggedIn || !m_roomConnected || event.roomId != m_activeRoomId
+        || !Guard::validRoomId(event.roomId)
+        || !supportedTypes.contains(event.type)
+        || event.timestamp > static_cast<quint64>(std::numeric_limits<qint64>::max())
+        || event.data.size() > 24) {
+        return;
+    }
+
+    PlatformEvent safe;
+    safe.roomId = event.roomId;
+    safe.type = event.type;
+    safe.timestamp = event.timestamp;
+    for (auto it = event.data.cbegin(); it != event.data.cend(); ++it) {
+        if (!supportedFields.contains(it.key()) || it.value().userType() != QMetaType::QString)
+            continue;
+        const qsizetype limit = (it.key() == QStringLiteral("text")
+                                || it.key() == QStringLiteral("giftName")) ? 500 : 128;
+        const QString value = Guard::cleanText(it.value().toString(), limit);
+        if (!value.isEmpty())
+            safe.data.insert(it.key(), value);
+    }
+
+    if (safe.data.isEmpty())
+        return;
+    emit platformEventReceived(safe);
 }
 
 } // namespace blkt
