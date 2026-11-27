@@ -168,6 +168,53 @@ inline QString userId(const QJsonObject &data)
     });
 }
 
+
+inline bool extractGift(const QJsonObject &command,
+                        const QString &roomId,
+                        quint64 timestamp,
+                        GiftEvent *event)
+{
+    if (!event || command.value(QStringLiteral("cmd")).toString()
+                      != QStringLiteral("SEND_GIFT")) {
+        return false;
+    }
+
+    const QJsonObject data = command.value(QStringLiteral("data")).toObject();
+    const QString name = userName(data);
+    const QString giftName = firstScalar(data, {
+        QStringLiteral("giftName"), QStringLiteral("gift_name")
+    });
+    quint64 giftId = 0;
+    quint64 count = 0;
+    quint64 totalCoin = 0;
+    const bool idOk = toUnsigned(data.value(QStringLiteral("giftId")).isUndefined()
+                                     ? data.value(QStringLiteral("gift_id"))
+                                     : data.value(QStringLiteral("giftId")), &giftId);
+    const bool countOk = toUnsigned(data.value(QStringLiteral("num")), &count);
+    const QJsonValue coinValue = data.value(QStringLiteral("total_coin"));
+    const bool coinOk = coinValue.isUndefined() || coinValue.isNull()
+        || toUnsigned(coinValue, &totalCoin);
+
+    if (name.isEmpty() || giftName.isEmpty() || !idOk || giftId == 0
+        || !countOk || count == 0
+        || count > static_cast<quint64>(std::numeric_limits<quint32>::max())
+        || !coinOk) {
+        return false;
+    }
+
+    GiftEvent parsed;
+    parsed.roomId = roomId;
+    parsed.user = name;
+    parsed.giftName = giftName;
+    parsed.giftId = giftId;
+    parsed.count = static_cast<quint32>(count);
+    parsed.totalCoin = totalCoin;
+    parsed.coinType = firstScalar(data, {QStringLiteral("coin_type")});
+    parsed.timestamp = timestamp;
+    *event = parsed;
+    return true;
+}
+
 inline bool extractPlatformEvent(const QJsonObject &command,
                                 const QString &roomId,
                                 quint64 timestamp,

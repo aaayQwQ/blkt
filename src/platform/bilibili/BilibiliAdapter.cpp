@@ -1447,26 +1447,13 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
         m_core->ingestMessage(event);
         return;
     }
-
     if (cmd == QStringLiteral("SEND_GIFT") && m_core) {
         GiftEvent event;
-        event.roomId = m_roomId;
-        event.user = data.value(QStringLiteral("uname")).toString();
-        event.giftName = data.value(QStringLiteral("giftName")).toString();
-        bool giftIdOk = false;
-        const quint64 giftId = jsonUnsigned(data.value(QStringLiteral("giftId")), &giftIdOk);
-        bool totalCoinOk = false;
-        quint64 totalCoin = jsonUnsigned(data.value(QStringLiteral("total_coin")), &totalCoinOk);
-        const int count = data.value(QStringLiteral("num")).toInt();
-        if (!giftIdOk || giftId == 0 || count <= 0)
-            return;
-
-        event.giftId = giftId;
-        event.count = static_cast<quint32>(count);
-        event.totalCoin = totalCoinOk ? totalCoin : 0;
-        event.coinType = data.value(QStringLiteral("coin_type")).toString();
-        event.timestamp = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
-        m_core->ingestGift(event);
+        if (BilibiliProtocol::extractGift(
+                command, m_roomId,
+                static_cast<quint64>(QDateTime::currentSecsSinceEpoch()), &event)) {
+            m_core->ingestGift(event);
+        }
         return;
     }
 

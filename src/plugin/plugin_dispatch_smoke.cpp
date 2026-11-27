@@ -19,6 +19,7 @@ int main(int argc, char *argv[])
         "BLKT.on('message', function(event) { "
         "BLKT.log('DISPATCH:' + event.user + ':' + event.text); "
         "});\n"
+        "BLKT.on('gift', function(event) { BLKT.log('GIFT:' + event.user + ':' + event.giftName + ':' + event.count); });\n"
         "BLKT.on('interaction', function(event) { BLKT.log('INTERACTION:' + event.user + ':' + event.uid); });\n"
         "BLKT.on('superChat', function(event) { BLKT.log('SUPERCHAT:' + event.user + ':' + event.price); });\n"
         "BLKT.on('comboGift', function(event) { BLKT.log('COMBO:' + event.giftName + ':' + event.count); });\n"
@@ -64,6 +65,10 @@ int main(int argc, char *argv[])
     }
     if (!dispatched)
         return 9;
+
+    core.ingestGift({QStringLiteral("123"), QStringLiteral("Gifter"),
+                      QStringLiteral("GiftName"), 7, 2, 20,
+                      QStringLiteral("gold"), 2});
 
     blkt::PlatformEvent interactionEvent;
     interactionEvent.roomId = QStringLiteral("123");
@@ -112,7 +117,8 @@ int main(int argc, char *argv[])
     unknownType.type = QStringLiteral("rawJson");
     core.ingestPlatformEvent(unknownType);
 
-    if (!logs.contains(QStringLiteral("Plugin echo: INTERACTION:Visitor:42"))
+    if (!logs.contains(QStringLiteral("Plugin echo: GIFT:Gifter:GiftName:2"))
+        || !logs.contains(QStringLiteral("Plugin echo: INTERACTION:Visitor:42"))
         || !logs.contains(QStringLiteral("Plugin echo: SUPERCHAT:Supporter:30"))
         || !logs.contains(QStringLiteral("Plugin echo: COMBO:Snack:10"))
         || !logs.contains(QStringLiteral("Plugin echo: ROOMSTATS:55:888")))

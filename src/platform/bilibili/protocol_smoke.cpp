@@ -79,7 +79,30 @@ int main()
     if (extractDanmaku(incomplete, &user, &text))
         return 8;
 
-    blkt::PlatformEvent event;
+    blkt::PlatformEvent event;    QJsonObject giftData;
+    giftData.insert(QStringLiteral("uname"), QStringLiteral("GiftUser"));
+    giftData.insert(QStringLiteral("giftName"), QStringLiteral("GiftName"));
+    giftData.insert(QStringLiteral("giftId"), QStringLiteral("9007199254740990"));
+    giftData.insert(QStringLiteral("num"), 3);
+    giftData.insert(QStringLiteral("total_coin"), 300);
+    giftData.insert(QStringLiteral("coin_type"), QStringLiteral("silver"));
+    QJsonObject giftCommand;
+    giftCommand.insert(QStringLiteral("cmd"), QStringLiteral("SEND_GIFT"));
+    giftCommand.insert(QStringLiteral("data"), giftData);
+    blkt::GiftEvent giftEvent;
+    if (!blkt::BilibiliProtocol::extractGift(
+            giftCommand, QStringLiteral("123"), 99, &giftEvent)
+        || giftEvent.giftId != 9007199254740990ULL
+        || giftEvent.count != 3
+        || giftEvent.totalCoin != 300
+        || giftEvent.user != QStringLiteral("GiftUser"))
+        return 19;
+    giftData.insert(QStringLiteral("num"), 4294967296.0);
+    giftCommand.insert(QStringLiteral("data"), giftData);
+    if (blkt::BilibiliProtocol::extractGift(
+            giftCommand, QStringLiteral("123"), 99, &giftEvent))
+        return 20;
+
     QJsonObject interactionData;
     interactionData.insert(QStringLiteral("uid"), QStringLiteral("12345"));
     interactionData.insert(QStringLiteral("uname"), QStringLiteral("RoomUser"));
