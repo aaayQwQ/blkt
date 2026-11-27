@@ -10,6 +10,65 @@ int main()
     using blkt::BilibiliProtocol::toUnsigned;
 
     quint64 number = 0;
+
+    auto writeU16 = [](QByteArray &bytes, qsizetype offset, quint16 value) {
+        bytes[offset] = static_cast<char>((value >> 8) & 0xff);
+        bytes[offset + 1] = static_cast<char>(value & 0xff);
+    };
+    auto writeU32 = [](QByteArray &bytes, qsizetype offset, quint32 value) {
+        bytes[offset] = static_cast<char>((value >> 24) & 0xff);
+        bytes[offset + 1] = static_cast<char>((value >> 16) & 0xff);
+        bytes[offset + 2] = static_cast<char>((value >> 8) & 0xff);
+        bytes[offset + 3] = static_cast<char>(value & 0xff);
+    };
+
+    QByteArray packet(20, '\\0');
+    writeU32(packet, 0, 20);
+    writeU16(packet, 4, 16);
+    writeU16(packet, 6, 1);
+    writeU32(packet, 8, 5);
+    writeU32(packet, 12, 1);
+    blkt::BilibiliProtocol::PacketHeader packetHeader;
+    if (!blkt::BilibiliProtocol::readPacketHeader(packet, 0, 1024, &packetHeader)
+        || packetHeader.packetLength != 20 || packetHeader.headerLength != 16
+        || packetHeader.version != 1 || packetHeader.operation != 5
+        || packetHeader.sequence != 1)
+        return 23;
+
+    QByteArray twoPackets = packet + packet;
+    if (!blkt::BilibiliProtocol::readPacketHeader(twoPackets, 20, 1024, &packetHeader)
+        || packetHeader.packetLength != 20)
+        return 24;
+
+    QByteArray invalid = packet;
+    writeU32(invalid, 0, 15);
+    if (blkt::BilibiliProtocol::readPacketHeader(invalid, 0, 1024, &packetHeader))
+        return 25;
+    invalid = packet;
+    writeU32(invalid, 0, 2048);
+    if (blkt::BilibiliProtocol::readPacketHeader(invalid, 0, 1024, &packetHeader))
+        return 26;
+    invalid = packet;
+    writeU16(invalid, 4, 15);
+    if (blkt::BilibiliProtocol::readPacketHeader(invalid, 0, 1024, &packetHeader))
+        return 27;
+    invalid = packet;
+    writeU16(invalid, 4, 21);
+    if (blkt::BilibiliProtocol::readPacketHeader(invalid, 0, 1024, &packetHeader))
+        return 28;
+    invalid = packet.left(19);
+    if (blkt::BilibiliProtocol::readPacketHeader(invalid, 0, 1024, &packetHeader))
+        return 29;
+    if (blkt::BilibiliProtocol::readPacketHeader(packet, -1, 1024, &packetHeader)
+        || blkt::BilibiliProtocol::readPacketHeader(packet, 20, 1024, &packetHeader))
+        return 30;
+
+    if (blkt::BilibiliProtocol::reconnectDelayMs(0, 0) != 1000
+        || blkt::BilibiliProtocol::reconnectDelayMs(1, 15) != 2015
+        || blkt::BilibiliProtocol::reconnectDelayMs(5, 999) != 30999
+        || blkt::BilibiliProtocol::reconnectDelayMs(50, 0) != 30000
+        || blkt::BilibiliProtocol::reconnectDelayMs(-1, -10) != 1000)
+        return 31;
     if (!toUnsigned(QJsonValue(QStringLiteral("18446744073709551615")), &number)
         || number != std::numeric_limits<quint64>::max())
         return 1;

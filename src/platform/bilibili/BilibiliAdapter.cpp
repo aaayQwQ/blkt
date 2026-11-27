@@ -1320,18 +1320,17 @@ void BilibiliAdapter::handlePacketData(const QByteArray &data, int depth)
 
     qsizetype offset = 0;
     while (offset + PacketHeaderSize <= data.size()) {
-        const quint32 packetLength = readU32(data, offset);
-        const quint16 headerLength = readU16(data, offset + 4);
-        const quint16 version = readU16(data, offset + 6);
-        const quint32 operation = readU32(data, offset + 8);
-
-        if (packetLength < PacketHeaderSize || packetLength > MaxWebSocketPacketBytes
-            || headerLength < PacketHeaderSize || headerLength > packetLength
-            || offset + packetLength > data.size()) {
+        BilibiliProtocol::PacketHeader packetHeader;
+        if (!BilibiliProtocol::readPacketHeader(
+                data, offset, static_cast<quint32>(MaxWebSocketPacketBytes), &packetHeader)) {
             m_webSocket.abort();
             return;
         }
 
+        const quint32 packetLength = packetHeader.packetLength;
+        const quint16 headerLength = packetHeader.headerLength;
+        const quint16 version = packetHeader.version;
+        const quint32 operation = packetHeader.operation;
         const QByteArray payload =
             data.mid(offset + headerLength, packetLength - headerLength);
         if (version == ProtocolVersionZlib) {
@@ -1470,11 +1469,10 @@ void BilibiliAdapter::scheduleReconnect()
 {
     if (!m_roomRequested || !m_authenticated || m_reconnectTimer.isActive())
         return;
-    const int exponent = qMin(m_reconnectAttempt, 5);
-    const int baseDelay = qMin(1000 * (1 << exponent), 30000);
     const int jitter = QRandomGenerator::global()->bounded(1000);
+    const int delay = BilibiliProtocol::reconnectDelayMs(m_reconnectAttempt, jitter);
     ++m_reconnectAttempt;
-    m_reconnectTimer.start(baseDelay + jitter);
+    m_reconnectTimer.start(delay);
 }
 
 void BilibiliAdapter::disconnectRoom()

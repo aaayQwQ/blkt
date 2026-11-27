@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QByteArray>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -12,6 +13,74 @@
 
 namespace blkt {
 namespace BilibiliProtocol {
+
+
+struct PacketHeader {
+    quint32 packetLength = 0;
+    quint16 headerLength = 0;
+    quint16 version = 0;
+    quint32 operation = 0;
+    quint32 sequence = 0;
+};
+
+inline bool readPacketHeader(const QByteArray &data, qsizetype offset,
+                             quint32 maxPacketBytes, PacketHeader *header)
+{
+    constexpr qsizetype HeaderBytes = 16;
+    if (!header || offset < 0 || offset > data.size()
+        || data.size() - offset < HeaderBytes) {
+        return false;
+    }
+
+    const auto *bytes = reinterpret_cast<const uchar *>(data.constData() + offset);
+    const quint32 packetLength =
+        (static_cast<quint32>(bytes[0]) << 24)
+        | (static_cast<quint32>(bytes[1]) << 16)
+        | (static_cast<quint32>(bytes[2]) << 8)
+        | static_cast<quint32>(bytes[3]);
+    const quint16 headerLength =
+        static_cast<quint16>((static_cast<quint16>(bytes[4]) << 8)
+                             | static_cast<quint16>(bytes[5]));
+    const quint16 version =
+        static_cast<quint16>((static_cast<quint16>(bytes[6]) << 8)
+                             | static_cast<quint16>(bytes[7]));
+    const quint32 operation =
+        (static_cast<quint32>(bytes[8]) << 24)
+        | (static_cast<quint32>(bytes[9]) << 16)
+        | (static_cast<quint32>(bytes[10]) << 8)
+        | static_cast<quint32>(bytes[11]);
+    const quint32 sequence =
+        (static_cast<quint32>(bytes[12]) << 24)
+        | (static_cast<quint32>(bytes[13]) << 16)
+        | (static_cast<quint32>(bytes[14]) << 8)
+        | static_cast<quint32>(bytes[15]);
+
+    const qsizetype remaining = data.size() - offset;
+    if (packetLength < static_cast<quint32>(HeaderBytes)
+        || packetLength > maxPacketBytes
+        || headerLength < static_cast<quint16>(HeaderBytes)
+        || headerLength > packetLength
+        || static_cast<quint64>(packetLength) > static_cast<quint64>(remaining)) {
+        return false;
+    }
+
+    PacketHeader parsed;
+    parsed.packetLength = packetLength;
+    parsed.headerLength = headerLength;
+    parsed.version = version;
+    parsed.operation = operation;
+    parsed.sequence = sequence;
+    *header = parsed;
+    return true;
+}
+
+inline int reconnectDelayMs(int attempt, int jitter)
+{
+    const int safeAttempt = attempt < 0 ? 0 : (attempt > 5 ? 5 : attempt);
+    const int baseDelay = qMin(1000 * (1 << safeAttempt), 30000);
+    const int safeJitter = jitter < 0 ? 0 : (jitter > 999 ? 999 : jitter);
+    return baseDelay + safeJitter;
+}
 
 // JSON numbers are IEEE-754 doubles. Reject values outside the exact integer
 // range instead of silently rounding large remote identifiers.
