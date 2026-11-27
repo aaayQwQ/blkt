@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QString>
+#include <QtGlobal>
 #include <initializer_list>
 #include "../../plugin/IPlugin.hpp"
 

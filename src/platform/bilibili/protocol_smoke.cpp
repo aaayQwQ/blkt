@@ -22,7 +22,7 @@ int main()
         bytes[offset + 3] = static_cast<char>(value & 0xff);
     };
 
-    QByteArray packet(20, '\\0');
+    QByteArray packet(20, '\0');
     writeU32(packet, 0, 20);
     writeU16(packet, 4, 16);
     writeU16(packet, 6, 1);
