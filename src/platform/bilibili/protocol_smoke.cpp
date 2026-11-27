@@ -79,7 +79,8 @@ int main()
     if (extractDanmaku(incomplete, &user, &text))
         return 8;
 
-    blkt::PlatformEvent event;    QJsonObject giftData;
+    blkt::PlatformEvent event;
+    QJsonObject giftData;
     giftData.insert(QStringLiteral("uname"), QStringLiteral("GiftUser"));
     giftData.insert(QStringLiteral("giftName"), QStringLiteral("GiftName"));
     giftData.insert(QStringLiteral("giftId"), QStringLiteral("9007199254740990"));
@@ -162,12 +163,10 @@ int main()
         || event.data.value(QStringLiteral("count")).toString() != QStringLiteral("321"))
         return 11;
 
-    QJsonObject noticeData;
-    noticeData.insert(QStringLiteral("msg_common"), QStringLiteral("Room notice"));
-    noticeData.insert(QStringLiteral("msg_type"), 3);
     QJsonObject notice;
     notice.insert(QStringLiteral("cmd"), QStringLiteral("NOTICE_MSG"));
-    notice.insert(QStringLiteral("data"), noticeData);
+    notice.insert(QStringLiteral("msg_common"), QStringLiteral("Room notice"));
+    notice.insert(QStringLiteral("msg_type"), 3);
     if (!blkt::BilibiliProtocol::extractPlatformEvent(
             notice, QStringLiteral("123"), 103, &event)
         || event.type != QStringLiteral("notice")

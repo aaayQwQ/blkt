@@ -224,7 +224,10 @@ inline bool extractPlatformEvent(const QJsonObject &command,
         return false;
 
     const QString cmd = command.value(QStringLiteral("cmd")).toString();
-    const QJsonObject data = command.value(QStringLiteral("data")).toObject();
+    QJsonObject data = command.value(QStringLiteral("data")).toObject();
+    // NOTICE_MSG payloads are sometimes emitted directly on the command root.
+    if (data.isEmpty())
+        data = command;
     PlatformEvent parsed;
     parsed.roomId = roomId;
     parsed.timestamp = timestamp;

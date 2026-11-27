@@ -4,6 +4,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QHash>
 #include <QMap>
 #include <QJSEngine>
 #include <QJSValue>
