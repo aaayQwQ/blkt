@@ -312,6 +312,13 @@ void Core::ingestPlatformEvent(const PlatformEvent &event)
         QStringLiteral("online"), QStringLiteral("watched"),
         QStringLiteral("roomScore")
     };
+    static const QSet<QString> numericFields{
+        QStringLiteral("uid"), QStringLiteral("count"),
+        QStringLiteral("total"), QStringLiteral("price"),
+        QStringLiteral("level"), QStringLiteral("messageId"),
+        QStringLiteral("giftId"), QStringLiteral("online"),
+        QStringLiteral("watched"), QStringLiteral("roomScore")
+    };
 
     if (!m_loggedIn || !m_roomConnected || event.roomId != m_activeRoomId
         || !Guard::validRoomId(event.roomId)
@@ -331,8 +338,15 @@ void Core::ingestPlatformEvent(const PlatformEvent &event)
         const qsizetype limit = (it.key() == QStringLiteral("text")
                                 || it.key() == QStringLiteral("giftName")) ? 500 : 128;
         const QString value = Guard::cleanText(it.value().toString(), limit);
-        if (!value.isEmpty())
-            safe.data.insert(it.key(), value);
+        if (value.isEmpty())
+            continue;
+        if (numericFields.contains(it.key())) {
+            bool ok = false;
+            value.toULongLong(&ok, 10);
+            if (!ok)
+                continue;
+        }
+        safe.data.insert(it.key(), value);
     }
 
     if (safe.data.isEmpty())

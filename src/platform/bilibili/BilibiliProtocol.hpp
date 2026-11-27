@@ -270,7 +270,7 @@ inline bool extractPlatformEvent(const QJsonObject &command,
         put(QStringLiteral("price"), firstUnsigned(data, {
             QStringLiteral("price")
         }));
-        put(QStringLiteral("level"), firstScalar(data, {
+        put(QStringLiteral("level"), firstUnsigned(data, {
             QStringLiteral("guard_level"), QStringLiteral("level")
         }));
     } else if (cmd == QStringLiteral("COMBO_SEND")) {

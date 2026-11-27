@@ -114,7 +114,7 @@ GitHub Actions builds and tests Windows x64, Linux x64, macOS Intel, and macOS A
 
 The client resolves short room IDs to canonical room IDs, obtains WBI-signed danmaku connection information, authenticates the live WebSocket, decodes plain and zlib packets, and maintains live and viewer heartbeats. Protocol v2 is used to retain the zlib-only runtime and avoid adding a Brotli DLL dependency.
 
-Danmaku and gift events are validated before entering the core and being dispatched to plugins. The first accepted danmaku is explicitly logged. A successful WebSocket authentication does not itself prove that a room has active chat traffic; end-to-end testing requires an actual danmaku message in the room.
+Danmaku, individual gifts, and supported room events are validated before entering the core and being dispatched to plugins. Combo-gift summaries use a separate `comboGift` event to avoid double counting. Both the protocol parser and the core apply command, room, type, and field allow-lists. A successful WebSocket authentication does not itself prove that a room has active chat traffic; end-to-end testing requires an actual danmaku message in the room.
 
 ## Scope and limitations
 
