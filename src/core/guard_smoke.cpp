@@ -9,8 +9,8 @@ int main()
 
     if (!Guard::validRoomId(QStringLiteral("123456")))
         return 1;
-    if (!Guard::validRoomId(QStringLiteral("18446744073709551615"))
-        || Guard::validRoomId(QStringLiteral("18446744073709551616")))
+    if (!Guard::validRoomId(QStringLiteral("9007199254740991"))
+        || Guard::validRoomId(QStringLiteral("9007199254740992")))
         return 2;
 
     if (!Guard::validBilibiliWebSocketHost(QStringLiteral("broadcastlv.chat.bilibili.com"))
@@ -54,6 +54,13 @@ int main()
         || redacted.contains(QStringLiteral("another-secret"))
         || !redacted.contains(QStringLiteral("[REDACTED]")))
         return 11;
+
+    const QString cookieRedacted = Guard::redact(
+        QStringLiteral("SESSDATA=session-value; bili_jct=csrf-value; buvid3=device-value"));
+    if (cookieRedacted.contains(QStringLiteral("session-value"))
+        || cookieRedacted.contains(QStringLiteral("csrf-value"))
+        || cookieRedacted.contains(QStringLiteral("device-value")))
+        return 12;
 
     return 0;
 }

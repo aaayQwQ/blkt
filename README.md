@@ -53,10 +53,22 @@ A plugin is not loaded unless explicitly allow-listed:
 The plugin API:
 
 - `BLKT.on("message", callback)` — receive validated danmaku events.
-- `BLKT.on("gift", callback)` — receive validated gift events.
+- `BLKT.on("gift", callback)` — receive validated individual gift events (`SEND_GIFT`).
+- `BLKT.on("interaction", callback)` — follows, shares and user interactions.
+- `BLKT.on("entry", callback)` — entry effects and welcome events.
+- `BLKT.on("like", callback)` — like counter updates.
+- `BLKT.on("watched", callback)` — watched-count updates.
+- `BLKT.on("notice", callback)` — room notices.
+- `BLKT.on("superChat", callback)` — Super Chat messages.
+- `BLKT.on("guard", callback)` — guard purchases.
+- `BLKT.on("comboGift", callback)` — combo-gift summaries (`COMBO_SEND`), separate from individual gifts.
+- `BLKT.on("online", callback)` — online-count updates.
+- `BLKT.on("roomStats", callback)` — room online/watched/score statistics.
 - `BLKT.giftInfo(giftId)` — query the in-memory gift catalog.
 - `BLKT.log(text)` — write a bounded message to the host log.
 - `BLKT.sendMessage(text)` — send to the active room, only when separately granted.
+
+Platform events contain `roomId`, `type`, `timestamp`, and normalized scalar fields such as `user`, `uid`, `text`, `count`, `price`, `level`, and `giftName`. Numeric IDs and counters are strings to preserve 64-bit precision in JavaScript. Unknown commands and unrecognized payload fields are not forwarded.
 
 Message sending is denied by default. Grant it explicitly to an already allow-listed plugin:
 

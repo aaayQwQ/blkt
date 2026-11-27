@@ -293,8 +293,6 @@ bool BilibiliAdapter::authenticate(const QByteArray &cookie, const QString &csrf
     request.setRawHeader("Accept", "application/json, text/plain, */*");
     request.setRawHeader("Origin", "https://www.bilibili.com");
     request.setRawHeader("Referer", "https://www.bilibili.com/");
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
 
     m_reply = m_network.get(request);
     if (!m_reply) {

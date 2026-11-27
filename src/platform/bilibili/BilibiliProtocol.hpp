@@ -136,9 +136,26 @@ inline QString userName(const QJsonObject &data)
     });
 }
 
+inline QString unsignedScalar(const QJsonValue &value)
+{
+    quint64 number = 0;
+    return toUnsigned(value, &number) ? QString::number(number) : QString();
+}
+
+inline QString firstUnsigned(const QJsonObject &object,
+                             std::initializer_list<QString> keys)
+{
+    for (const QString &key : keys) {
+        const QString value = unsignedScalar(object.value(key));
+        if (!value.isEmpty())
+            return value;
+    }
+    return {};
+}
+
 inline QString userId(const QJsonObject &data)
 {
-    QString id = firstScalar(data, {
+    QString id = firstUnsigned(data, {
         QStringLiteral("uid"), QStringLiteral("mid")
     });
     if (!id.isEmpty())
@@ -146,7 +163,7 @@ inline QString userId(const QJsonObject &data)
     QJsonObject user = data.value(QStringLiteral("user_info")).toObject();
     if (user.isEmpty())
         user = data.value(QStringLiteral("user")).toObject();
-    return firstScalar(user, {
+    return firstUnsigned(user, {
         QStringLiteral("uid"), QStringLiteral("mid")
     });
 }
@@ -195,23 +212,23 @@ inline bool extractPlatformEvent(const QJsonObject &command,
             QStringLiteral("message")
         }));
         put(QStringLiteral("subtype"), cmd);
-        put(QStringLiteral("level"), firstScalar(data, {
+        put(QStringLiteral("level"), firstUnsigned(data, {
             QStringLiteral("guard_level"), QStringLiteral("privilege_type")
         }));
     } else if (cmd == QStringLiteral("LIKE_INFO_V3_CLICK")
                || cmd == QStringLiteral("LIKE_INFO_V3_UPDATE")) {
         setType(QStringLiteral("like"));
-        put(QStringLiteral("count"), firstScalar(data, {
+        put(QStringLiteral("count"), firstUnsigned(data, {
             QStringLiteral("click_count"), QStringLiteral("like_count"),
             QStringLiteral("count")
         }));
-        put(QStringLiteral("total"), firstScalar(data, {
+        put(QStringLiteral("total"), firstUnsigned(data, {
             QStringLiteral("total_like"), QStringLiteral("total")
         }));
         put(QStringLiteral("subtype"), cmd);
     } else if (cmd == QStringLiteral("WATCHED_CHANGE")) {
         setType(QStringLiteral("watched"));
-        put(QStringLiteral("count"), firstScalar(data, {
+        put(QStringLiteral("count"), firstUnsigned(data, {
             QStringLiteral("num"), QStringLiteral("count")
         }));
         put(QStringLiteral("text"), firstScalar(data, {
@@ -234,10 +251,10 @@ inline bool extractPlatformEvent(const QJsonObject &command,
         put(QStringLiteral("text"), firstScalar(data, {
             QStringLiteral("message"), QStringLiteral("msg")
         }));
-        put(QStringLiteral("price"), firstScalar(data, {
+        put(QStringLiteral("price"), firstUnsigned(data, {
             QStringLiteral("price")
         }));
-        put(QStringLiteral("messageId"), firstScalar(data, {
+        put(QStringLiteral("messageId"), firstUnsigned(data, {
             QStringLiteral("message_id"), QStringLiteral("id")
         }));
     } else if (cmd == QStringLiteral("GUARD_BUY")) {
@@ -247,10 +264,10 @@ inline bool extractPlatformEvent(const QJsonObject &command,
         put(QStringLiteral("giftName"), firstScalar(data, {
             QStringLiteral("gift_name"), QStringLiteral("giftName")
         }));
-        put(QStringLiteral("count"), firstScalar(data, {
+        put(QStringLiteral("count"), firstUnsigned(data, {
             QStringLiteral("num"), QStringLiteral("count")
         }));
-        put(QStringLiteral("price"), firstScalar(data, {
+        put(QStringLiteral("price"), firstUnsigned(data, {
             QStringLiteral("price")
         }));
         put(QStringLiteral("level"), firstScalar(data, {
@@ -263,14 +280,14 @@ inline bool extractPlatformEvent(const QJsonObject &command,
         put(QStringLiteral("giftName"), firstScalar(data, {
             QStringLiteral("gift_name"), QStringLiteral("giftName")
         }));
-        put(QStringLiteral("giftId"), firstScalar(data, {
+        put(QStringLiteral("giftId"), firstUnsigned(data, {
             QStringLiteral("gift_id"), QStringLiteral("giftId")
         }));
-        put(QStringLiteral("count"), firstScalar(data, {
+        put(QStringLiteral("count"), firstUnsigned(data, {
             QStringLiteral("combo_num"), QStringLiteral("total_num"),
             QStringLiteral("num")
         }));
-        put(QStringLiteral("total"), firstScalar(data, {
+        put(QStringLiteral("total"), firstUnsigned(data, {
             QStringLiteral("combo_total_coin"), QStringLiteral("total_coin")
         }));
         put(QStringLiteral("coinType"), firstScalar(data, {
@@ -278,19 +295,19 @@ inline bool extractPlatformEvent(const QJsonObject &command,
         }));
     } else if (cmd == QStringLiteral("ONLINE_RANK_COUNT")) {
         setType(QStringLiteral("online"));
-        put(QStringLiteral("count"), firstScalar(data, {
+        put(QStringLiteral("count"), firstUnsigned(data, {
             QStringLiteral("count"), QStringLiteral("num")
         }));
     } else if (cmd == QStringLiteral("ROOM_REAL_TIME_MESSAGE_UPDATE")) {
         setType(QStringLiteral("roomStats"));
-        put(QStringLiteral("online"), firstScalar(data, {
+        put(QStringLiteral("online"), firstUnsigned(data, {
             QStringLiteral("online")
         }));
         const QJsonObject watched = data.value(QStringLiteral("watched_show")).toObject();
-        put(QStringLiteral("watched"), firstScalar(watched, {
+        put(QStringLiteral("watched"), firstUnsigned(watched, {
             QStringLiteral("num")
         }));
-        put(QStringLiteral("roomScore"), firstScalar(data, {
+        put(QStringLiteral("roomScore"), firstUnsigned(data, {
             QStringLiteral("room_score")
         }));
     } else {

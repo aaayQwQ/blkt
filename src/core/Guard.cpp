@@ -53,7 +53,7 @@ QString Guard::redact(const QString &value)
 {
     QString result = value;
     static const QRegularExpression secretPattern(
-        QStringLiteral(R"((cookie|set-cookie|csrf(?:_token)?|authorization|access[_-]?token|api[_-]?key|secret)\s*[:=]\s*[^\s,;]+)"),
+        QStringLiteral(R"((SESSDATA|bili_jct|buvid3|cookie|set-cookie|csrf(?:_token)?|authorization|access[_-]?token|refresh[_-]?token|api[_-]?key|secret|password)\s*[:=]\s*[^\s,;]+)"),
         QRegularExpression::CaseInsensitiveOption);
 
     result.replace(secretPattern, QStringLiteral("\\1=[REDACTED]"));
@@ -76,7 +76,8 @@ bool Guard::validRoomId(const QString &roomId)
 
     bool ok = false;
     const qulonglong value = roomId.toULongLong(&ok, 10);
-    return ok && value > 0;
+    constexpr qulonglong MaxJsonSafeInteger = 9007199254740991ULL;
+    return ok && value > 0 && value <= MaxJsonSafeInteger;
 }
 
 bool Guard::validCookie(const QByteArray &cookie)

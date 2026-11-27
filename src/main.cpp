@@ -20,7 +20,8 @@ void requestStop(int) { g_stopRequested = 1; }
 void writeLog(const QString &message)
 {
     QTextStream out(stdout);
-    const QString safeMessage = blkt::Guard::cleanLogText(message, 2048);
+    const QString safeMessage = blkt::Guard::redact(
+        blkt::Guard::cleanLogText(message, 2048));
     out << QDateTime::currentDateTime().toString(Qt::ISODate)
         << " " << safeMessage << Qt::endl;
 }

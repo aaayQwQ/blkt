@@ -93,6 +93,12 @@ int main()
         || event.data.value(QStringLiteral("user")).toString() != QStringLiteral("RoomUser")
         || event.data.value(QStringLiteral("uid")).toString() != QStringLiteral("12345"))
         return 9;
+    interactionData.insert(QStringLiteral("uid"), QStringLiteral("not-a-number"));
+    interaction.insert(QStringLiteral("data"), interactionData);
+    if (blkt::BilibiliProtocol::extractPlatformEvent(
+            interaction, QStringLiteral("123"), 100, &event)
+        && event.data.contains(QStringLiteral("uid")))
+        return 18;
 
     QJsonObject likeData;
     likeData.insert(QStringLiteral("click_count"), 7);
