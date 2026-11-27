@@ -746,17 +746,31 @@ void BilibiliAdapter::reportRoomEntry()
         return;
     }
 
-    const QUrl url(QStringLiteral(
+    QUrl url(QStringLiteral(
         "https://api.live.bilibili.com/xlive/web-room/v1/index/roomEntryAction"));
+    const QMap<QString, QString> signedParameters = signWbiParameters({
+        {QStringLiteral("csrf"), m_csrf}
+    });
+    if (signedParameters.isEmpty()) {
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral(
+                "Bilibili viewer entry report skipped: WBI signing credentials are unavailable"));
+        m_viewerEntryRetryTimer.start();
+        return;
+    }
+    QUrlQuery query;
+    for (auto it = signedParameters.cbegin(); it != signedParameters.cend(); ++it)
+        query.addQueryItem(it.key(), it.value());
+    url.setQuery(query);
+
     QUrlQuery form;
     form.addQueryItem(QStringLiteral("room_id"), m_roomId);
     form.addQueryItem(QStringLiteral("platform"), QStringLiteral("pc"));
-    form.addQueryItem(QStringLiteral("csrf"), m_csrf);
-    form.addQueryItem(QStringLiteral("csrf_token"), m_csrf);
 
     QNetworkRequest request(url);
     request.setRawHeader("Cookie", m_cookie);
     request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Origin", "https://live.bilibili.com");
     request.setRawHeader("Referer", (QStringLiteral("https://live.bilibili.com/") + m_roomId).toUtf8());
     request.setHeader(QNetworkRequest::ContentTypeHeader,
                       QStringLiteral("application/x-www-form-urlencoded"));
