@@ -969,21 +969,20 @@ void BilibiliAdapter::sendUserOnlineHeartbeat()
         return;
     }
 
-    const QUrl url(QStringLiteral("https://api.live.bilibili.com/mobile/userOnlineHeart"));
-    QUrlQuery form;
-    form.addQueryItem(QStringLiteral("room_id"), m_roomId);
-    form.addQueryItem(QStringLiteral("scale"), QStringLiteral("xxhdpi"));
+    // Bilibili's live-site online heartbeat is User/userOnlineHeart.
+    // It is a cookie-authenticated POST with an empty body; the similarly
+    // named /mobile/userOnlineHeart route does not authenticate this session.
+    const QUrl url(QStringLiteral("https://api.live.bilibili.com/User/userOnlineHeart"));
 
     QNetworkRequest request(url);
     request.setRawHeader("Cookie", m_cookie);
     request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("Accept", "application/json, text/plain, */*");
+    request.setRawHeader("Origin", "https://live.bilibili.com");
     request.setRawHeader("Referer",
                          (QStringLiteral("https://live.bilibili.com/") + m_roomId).toUtf8());
-    request.setHeader(QNetworkRequest::ContentTypeHeader,
-                      QStringLiteral("application/x-www-form-urlencoded"));
 
-    m_userOnlineHeartbeatReply = m_network.post(
-        request, form.query(QUrl::FullyEncoded).toUtf8());
+    m_userOnlineHeartbeatReply = m_network.post(request, QByteArray());
     if (!m_userOnlineHeartbeatReply) {
         m_userOnlineHeartbeatTimer.start(60000);
         if (m_core)
