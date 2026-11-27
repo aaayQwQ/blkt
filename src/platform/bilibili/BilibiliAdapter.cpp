@@ -879,8 +879,14 @@ void BilibiliAdapter::sendViewerHeartbeat()
 
     QNetworkRequest request(url);
     request.setRawHeader("Cookie", m_cookie);
-    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("User-Agent",
+                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/131.0.0.0 Safari/537.36");
+    request.setRawHeader("Origin", "https://live.bilibili.com");
     request.setRawHeader("Referer", (QStringLiteral("https://live.bilibili.com/") + m_roomId).toUtf8());
+    request.setRawHeader("Accept", "application/json, text/plain, */*");
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
     m_viewerHeartbeatReply = m_network.get(request);
     if (!m_viewerHeartbeatReply) {
@@ -974,15 +980,27 @@ void BilibiliAdapter::sendUserOnlineHeartbeat()
     // named /mobile/userOnlineHeart route does not authenticate this session.
     const QUrl url(QStringLiteral("https://api.live.bilibili.com/User/userOnlineHeart"));
 
+    QUrlQuery form;
+    form.addQueryItem(QStringLiteral("csrf"), m_csrf);
+    form.addQueryItem(QStringLiteral("csrf_token"), m_csrf);
+
     QNetworkRequest request(url);
     request.setRawHeader("Cookie", m_cookie);
-    request.setRawHeader("User-Agent", "Mozilla/5.0 BLKT/1.0 (Qt; C++17)");
+    request.setRawHeader("User-Agent",
+                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/131.0.0.0 Safari/537.36");
     request.setRawHeader("Accept", "application/json, text/plain, */*");
     request.setRawHeader("Origin", "https://live.bilibili.com");
     request.setRawHeader("Referer",
                          (QStringLiteral("https://live.bilibili.com/") + m_roomId).toUtf8());
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
+    // Avoid HTTP/2 GOAWAY errors observed on the live heartbeat endpoints.
+    request.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
 
-    m_userOnlineHeartbeatReply = m_network.post(request, QByteArray());
+    m_userOnlineHeartbeatReply = m_network.post(
+        request, form.query(QUrl::FullyEncoded).toUtf8());
     if (!m_userOnlineHeartbeatReply) {
         m_userOnlineHeartbeatTimer.start(60000);
         if (m_core)
