@@ -909,7 +909,6 @@ void BilibiliAdapter::handleViewerHeartbeat(QNetworkReply *reply)
     const QString errorText = Guard::cleanLogText(reply->errorString(), 120);
     reply->deleteLater();
     m_viewerHeartbeatReply.clear();
-    m_userOnlineHeartbeatReply.clear();
 
     if (!m_roomRequested)
         return;
@@ -1611,6 +1610,7 @@ void BilibiliAdapter::disconnectRoom()
     m_roomDetailsReply.clear();
     m_viewerEntryReply.clear();
     m_viewerHeartbeatReply.clear();
+    m_userOnlineHeartbeatReply.clear();
     if (roomReply && !roomReply->isFinished())
         roomReply->abort();
     if (giftReply && !giftReply->isFinished())
