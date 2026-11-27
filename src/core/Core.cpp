@@ -166,7 +166,7 @@ bool Core::sendMessage(const QString &roomId, const QString &text)
         return false;
     }
     m_activeReplies.insert(reply);
-    reply->setReadBufferSize(MaxReplyBytes);
+    reply->setReadBufferSize(MaxReplyBytes + 1);
 
     auto *timeout = new QTimer(reply);
     timeout->setSingleShot(true);

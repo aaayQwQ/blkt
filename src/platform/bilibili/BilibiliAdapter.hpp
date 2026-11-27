@@ -39,6 +39,7 @@ signals:
 private:
     void finishAuthentication(QNetworkReply *reply);
     void clearCredentials();
+    void armReplyTimeout(QNetworkReply *reply, const QString &requestName);
     void requestRoomInit();
     void handleRoomInit(QNetworkReply *reply);
     void requestDanmuInfo();
@@ -75,6 +76,7 @@ private:
     QTimer m_giftTimeout;
     QTimer m_roomDetailsTimeout;
     QTimer m_viewerHeartbeatTimer;
+    QTimer m_viewerEntryRetryTimer;
     QTimer m_timeout;
     QByteArray m_cookie;
     QString m_csrf;

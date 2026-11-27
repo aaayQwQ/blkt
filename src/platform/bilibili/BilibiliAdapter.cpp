@@ -120,6 +120,8 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     m_roomDetailsTimeout.setSingleShot(true);
     m_roomDetailsTimeout.setInterval(RequestTimeoutMs);
     m_viewerHeartbeatTimer.setSingleShot(true);
+    m_viewerEntryRetryTimer.setSingleShot(true);
+    m_viewerEntryRetryTimer.setInterval(5000);
 
     connect(&m_timeout, &QTimer::timeout, this, [this] {
         if (m_reply && !m_reply->isFinished())
@@ -142,6 +144,8 @@ BilibiliAdapter::BilibiliAdapter(Core *core, QObject *parent)
     });
     connect(&m_viewerHeartbeatTimer, &QTimer::timeout,
             this, &BilibiliAdapter::sendViewerHeartbeat);
+    connect(&m_viewerEntryRetryTimer, &QTimer::timeout,
+            this, &BilibiliAdapter::reportRoomEntry);
     connect(&m_giftTimeout, &QTimer::timeout, this, [this] {
         if (m_giftCatalogReply && !m_giftCatalogReply->isFinished())
             m_giftCatalogReply->abort();
@@ -235,6 +239,26 @@ BilibiliAdapter::~BilibiliAdapter()
     clearCredentials();
 }
 
+void BilibiliAdapter::armReplyTimeout(QNetworkReply *reply, const QString &requestName)
+{
+    if (!reply)
+        return;
+
+    auto *timer = new QTimer(reply);
+    timer->setSingleShot(true);
+    timer->setInterval(RequestTimeoutMs);
+    const QPointer<QNetworkReply> guardedReply(reply);
+    connect(timer, &QTimer::timeout, this, [this, guardedReply, requestName] {
+        if (!guardedReply || guardedReply->isFinished())
+            return;
+        if (m_core)
+            emit m_core->logMessage(QStringLiteral("%1 request timed out").arg(requestName));
+        guardedReply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, timer, &QTimer::stop);
+    timer->start();
+}
+
 bool BilibiliAdapter::authenticate(const QByteArray &cookie, const QString &csrf)
 {
     if (!m_core || m_reply || m_authenticated
@@ -280,7 +304,7 @@ bool BilibiliAdapter::authenticate(const QByteArray &cookie, const QString &csrf
         return false;
     }
 
-    m_reply->setReadBufferSize(MaxResponseBytes);
+    m_reply->setReadBufferSize(MaxResponseBytes + 1);
     QNetworkReply *authReply = m_reply;
     connect(authReply, &QIODevice::readyRead, this, [authReply] {
         if (authReply->bytesAvailable() > MaxResponseBytes)
@@ -445,7 +469,7 @@ void BilibiliAdapter::requestRoomInit()
     }
 
     QNetworkReply *reply = m_roomInfoReply;
-    reply->setReadBufferSize(MaxResponseBytes);
+    reply->setReadBufferSize(MaxResponseBytes + 1);
     connect(reply, &QIODevice::readyRead, this, [reply] {
         if (reply->bytesAvailable() > MaxResponseBytes)
             reply->abort();
@@ -599,7 +623,7 @@ void BilibiliAdapter::requestDanmuInfo()
     }
 
     QNetworkReply *roomReply = m_roomInfoReply;
-    roomReply->setReadBufferSize(MaxResponseBytes);
+    roomReply->setReadBufferSize(MaxResponseBytes + 1);
     connect(roomReply, &QIODevice::readyRead, this, [roomReply] {
         if (roomReply->bytesAvailable() > MaxResponseBytes)
             roomReply->abort();
@@ -741,11 +765,13 @@ void BilibiliAdapter::reportRoomEntry()
         if (m_core)
             emit m_core->logMessage(QStringLiteral(
                 "Bilibili viewer entry report could not be created"));
+        m_viewerEntryRetryTimer.start();
         return;
     }
 
+    armReplyTimeout(m_viewerEntryReply, QStringLiteral("Bilibili viewer entry"));
     QNetworkReply *reply = m_viewerEntryReply;
-    reply->setReadBufferSize(MaxResponseBytes);
+    reply->setReadBufferSize(MaxResponseBytes + 1);
     connect(reply, &QIODevice::readyRead, this, [reply] {
         if (reply->bytesAvailable() > MaxResponseBytes)
             reply->abort();
@@ -779,11 +805,15 @@ void BilibiliAdapter::handleRoomEntry(QNetworkReply *reply)
     reply->deleteLater();
     m_viewerEntryReply.clear();
 
+    if (!m_roomRequested || !m_roomResolved)
+        return;
+
     if (!transportOk) {
         if (m_core)
             emit m_core->logMessage(QStringLiteral(
                 "Bilibili viewer entry report transport failure: HTTP %1, error %2 (%3)")
                 .arg(httpStatus).arg(static_cast<int>(networkError)).arg(errorText));
+        m_viewerEntryRetryTimer.start();
         return;
     }
 
@@ -799,9 +829,11 @@ void BilibiliAdapter::handleRoomEntry(QNetworkReply *reply)
             emit m_core->logMessage(QStringLiteral(
                 "Bilibili viewer entry report rejected: HTTP %1, API code %2, message '%3'")
                 .arg(httpStatus).arg(apiCode).arg(apiMessage));
+        m_viewerEntryRetryTimer.start();
         return;
     }
 
+    m_viewerEntryRetryTimer.stop();
     m_viewerEntryReported = true;
     if (m_core)
         emit m_core->logMessage(QStringLiteral(
@@ -841,8 +873,9 @@ void BilibiliAdapter::sendViewerHeartbeat()
         return;
     }
 
+    armReplyTimeout(m_viewerHeartbeatReply, QStringLiteral("Bilibili viewer heartbeat"));
     QNetworkReply *reply = m_viewerHeartbeatReply;
-    reply->setReadBufferSize(MaxResponseBytes);
+    reply->setReadBufferSize(MaxResponseBytes + 1);
     connect(reply, &QIODevice::readyRead, this, [reply] {
         if (reply->bytesAvailable() > MaxResponseBytes)
             reply->abort();
@@ -938,7 +971,7 @@ void BilibiliAdapter::requestGiftCatalog()
     }
 
     QNetworkReply *reply = m_roomDetailsReply;
-    reply->setReadBufferSize(MaxResponseBytes);
+    reply->setReadBufferSize(MaxResponseBytes + 1);
     connect(reply, &QIODevice::readyRead, this, [reply] {
         if (reply->bytesAvailable() > MaxResponseBytes)
             reply->abort();
@@ -1021,7 +1054,7 @@ void BilibiliAdapter::fetchGiftCatalog(int areaId, int parentAreaId)
     }
 
     QNetworkReply *giftReply = m_giftCatalogReply;
-    giftReply->setReadBufferSize(MaxGiftCatalogBytes);
+    giftReply->setReadBufferSize(MaxGiftCatalogBytes + 1);
     connect(giftReply, &QIODevice::readyRead, this, [giftReply] {
         if (giftReply->bytesAvailable() > MaxGiftCatalogBytes)
             giftReply->abort();
@@ -1460,6 +1493,7 @@ void BilibiliAdapter::disconnectRoom()
         m_core->setRoomConnection({}, false);
     m_heartbeat.stop();
     m_viewerHeartbeatTimer.stop();
+    m_viewerEntryRetryTimer.stop();
     m_viewerEntryReported = false;
     m_viewerHeartbeatIntervalSeconds = 60;
     m_authTimeout.stop();
