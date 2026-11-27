@@ -66,11 +66,31 @@ ScriptPluginApi::ScriptPluginApi(Core *core, QJSEngine *engine, QString pluginId
 
 bool ScriptPluginApi::on(const QString &eventName, const QJSValue &callback)
 {
-    const bool permitted =
-        (eventName == QStringLiteral("message")
-         && hasPermission(m_permissions, Permission::ReceiveMessage))
-        || (eventName == QStringLiteral("gift")
-            && hasPermission(m_permissions, Permission::ReceiveGift));
+    bool permitted = false;
+    if (eventName == QStringLiteral("message"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveMessage);
+    else if (eventName == QStringLiteral("gift"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveGift);
+    else if (eventName == QStringLiteral("interaction"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveInteraction);
+    else if (eventName == QStringLiteral("entry"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveEntry);
+    else if (eventName == QStringLiteral("like"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveLike);
+    else if (eventName == QStringLiteral("watched"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveWatched);
+    else if (eventName == QStringLiteral("notice"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveNotice);
+    else if (eventName == QStringLiteral("superChat"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveSuperChat);
+    else if (eventName == QStringLiteral("guard"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveGuard);
+    else if (eventName == QStringLiteral("comboGift"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveComboGift);
+    else if (eventName == QStringLiteral("online"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveOnline);
+    else if (eventName == QStringLiteral("roomStats"))
+        permitted = hasPermission(m_permissions, Permission::ReceiveRoomStats);
     if (m_disabled || !permitted || !callback.isCallable() || !m_engine) {
         emit logMessage(QStringLiteral("Plugin %1 rejected event handler registration for '%2'")
                             .arg(m_pluginId, eventName));
@@ -189,6 +209,8 @@ ScriptPluginManager::ScriptPluginManager(Core *core, const QString &directory,
     if (m_core) {
         connect(m_core, &Core::messageReceived, this, &ScriptPluginManager::dispatchMessage);
         connect(m_core, &Core::giftReceived, this, &ScriptPluginManager::dispatchGift);
+        connect(m_core, &Core::platformEventReceived,
+                this, &ScriptPluginManager::dispatchPlatformEvent);
     }
 }
 
@@ -273,7 +295,17 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
 
     Permissions permissions = permissionFlag(Permission::ReceiveMessage)
         | permissionFlag(Permission::ReceiveGift)
-        | permissionFlag(Permission::GiftInfo);
+        | permissionFlag(Permission::GiftInfo)
+        | permissionFlag(Permission::ReceiveInteraction)
+        | permissionFlag(Permission::ReceiveEntry)
+        | permissionFlag(Permission::ReceiveLike)
+        | permissionFlag(Permission::ReceiveWatched)
+        | permissionFlag(Permission::ReceiveNotice)
+        | permissionFlag(Permission::ReceiveSuperChat)
+        | permissionFlag(Permission::ReceiveGuard)
+        | permissionFlag(Permission::ReceiveComboGift)
+        | permissionFlag(Permission::ReceiveOnline)
+        | permissionFlag(Permission::ReceiveRoomStats);
     if (m_sendMessageIds.contains(id))
         permissions |= permissionFlag(Permission::SendMessage);
 
@@ -343,6 +375,26 @@ void ScriptPluginManager::dispatchGift(const GiftEvent &event)
             break;
         if (entry && entry->api
             && !entry->api->dispatch(QStringLiteral("gift"), payload,
+                                     eventTimer, callbacksRemaining))
+            break;
+    }
+}
+
+void ScriptPluginManager::dispatchPlatformEvent(const PlatformEvent &event)
+{
+    QVariantMap payload = event.data;
+    payload.insert(QStringLiteral("roomId"), event.roomId);
+    payload.insert(QStringLiteral("type"), event.type);
+    payload.insert(QStringLiteral("timestamp"), static_cast<qlonglong>(event.timestamp));
+
+    QElapsedTimer eventTimer;
+    eventTimer.start();
+    int callbacksRemaining = MaxCallbacksPerEvent;
+    for (Entry *entry : m_plugins) {
+        if (eventTimer.elapsed() >= EventExecutionBudgetMs || callbacksRemaining <= 0)
+            break;
+        if (entry && entry->api
+            && !entry->api->dispatch(event.type, payload,
                                      eventTimer, callbacksRemaining))
             break;
     }

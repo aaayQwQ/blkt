@@ -69,6 +69,7 @@ private:
     void unloadPlugin(const QString &id);
     void dispatchMessage(const MessageEvent &event);
     void dispatchGift(const GiftEvent &event);
+    void dispatchPlatformEvent(const PlatformEvent &event);
 
     Core *m_core = nullptr;
     QDir m_directory;

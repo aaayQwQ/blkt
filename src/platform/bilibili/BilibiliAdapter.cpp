@@ -1469,6 +1469,16 @@ void BilibiliAdapter::handleCommand(const QJsonObject &command)
         event.coinType = data.value(QStringLiteral("coin_type")).toString();
         event.timestamp = static_cast<quint64>(QDateTime::currentSecsSinceEpoch());
         m_core->ingestGift(event);
+        return;
+    }
+
+    if (m_core) {
+        PlatformEvent event;
+        if (BilibiliProtocol::extractPlatformEvent(
+                command, m_roomId,
+                static_cast<quint64>(QDateTime::currentSecsSinceEpoch()), &event)) {
+            m_core->ingestPlatformEvent(event);
+        }
     }
 }
 

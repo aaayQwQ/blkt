@@ -18,7 +18,11 @@ int main(int argc, char *argv[])
     const QByteArray script = QByteArrayLiteral(
         "BLKT.on('message', function(event) { "
         "BLKT.log('DISPATCH:' + event.user + ':' + event.text); "
-        "});\n");
+        "});\n"
+        "BLKT.on('interaction', function(event) { BLKT.log('INTERACTION:' + event.user + ':' + event.uid); });\n"
+        "BLKT.on('superChat', function(event) { BLKT.log('SUPERCHAT:' + event.user + ':' + event.price); });\n"
+        "BLKT.on('comboGift', function(event) { BLKT.log('COMBO:' + event.giftName + ':' + event.count); });\n"
+        "BLKT.on('roomStats', function(event) { BLKT.log('ROOMSTATS:' + event.online + ':' + event.watched); });\n");
     if (allowed.write(script) != script.size())
         return 3;
     allowed.close();
@@ -60,6 +64,64 @@ int main(int argc, char *argv[])
     }
     if (!dispatched)
         return 9;
+
+    blkt::PlatformEvent interactionEvent;
+    interactionEvent.roomId = QStringLiteral("123");
+    interactionEvent.type = QStringLiteral("interaction");
+    interactionEvent.timestamp = 2;
+    interactionEvent.data = {
+        {QStringLiteral("user"), QStringLiteral("Visitor")},
+        {QStringLiteral("uid"), QStringLiteral("42")}
+    };
+    core.ingestPlatformEvent(interactionEvent);
+
+    blkt::PlatformEvent superChatEvent;
+    superChatEvent.roomId = QStringLiteral("123");
+    superChatEvent.type = QStringLiteral("superChat");
+    superChatEvent.timestamp = 3;
+    superChatEvent.data = {
+        {QStringLiteral("user"), QStringLiteral("Supporter")},
+        {QStringLiteral("price"), QStringLiteral("30")}
+    };
+    core.ingestPlatformEvent(superChatEvent);
+
+    blkt::PlatformEvent comboEvent;
+    comboEvent.roomId = QStringLiteral("123");
+    comboEvent.type = QStringLiteral("comboGift");
+    comboEvent.timestamp = 4;
+    comboEvent.data = {
+        {QStringLiteral("giftName"), QStringLiteral("Snack")},
+        {QStringLiteral("count"), QStringLiteral("10")}
+    };
+    core.ingestPlatformEvent(comboEvent);
+
+    blkt::PlatformEvent statsEvent;
+    statsEvent.roomId = QStringLiteral("123");
+    statsEvent.type = QStringLiteral("roomStats");
+    statsEvent.timestamp = 5;
+    statsEvent.data = {
+        {QStringLiteral("online"), QStringLiteral("55")},
+        {QStringLiteral("watched"), QStringLiteral("888")}
+    };
+    core.ingestPlatformEvent(statsEvent);
+
+    blkt::PlatformEvent wrongRoom = interactionEvent;
+    wrongRoom.roomId = QStringLiteral("999");
+    core.ingestPlatformEvent(wrongRoom);
+    blkt::PlatformEvent unknownType = interactionEvent;
+    unknownType.type = QStringLiteral("rawJson");
+    core.ingestPlatformEvent(unknownType);
+
+    if (!logs.contains(QStringLiteral("Plugin echo: INTERACTION:Visitor:42"))
+        || !logs.contains(QStringLiteral("Plugin echo: SUPERCHAT:Supporter:30"))
+        || !logs.contains(QStringLiteral("Plugin echo: COMBO:Snack:10"))
+        || !logs.contains(QStringLiteral("Plugin echo: ROOMSTATS:55:888")))
+        return 10;
+    for (const QString &entry : logs) {
+        if (entry.contains(QStringLiteral("rawJson"))
+            || entry.contains(QStringLiteral("999")))
+            return 11;
+    }
 
     manager.stop();
     core.logout();
