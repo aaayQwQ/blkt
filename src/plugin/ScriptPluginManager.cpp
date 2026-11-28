@@ -164,12 +164,6 @@ bool ScriptPluginApi::openAIChat(const QJSValue &requestValue,
                             .arg(m_pluginId));
         return false;
     }
-    if (!QSslSocket::supportsSsl()) {
-        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: Qt TLS backend unavailable")
-                            .arg(m_pluginId));
-        return false;
-    }
-
     const QJSValue endpointValue = requestValue.property(QStringLiteral("endpoint"));
     const QJSValue keyValue = requestValue.property(QStringLiteral("api_key"));
     const QJSValue modelValue = requestValue.property(QStringLiteral("model"));
@@ -202,6 +196,11 @@ bool ScriptPluginApi::openAIChat(const QJSValue &requestValue,
         emit logMessage(QStringLiteral(
             "Plugin %1 OpenAI request rejected: endpoint must be a public HTTPS URL")
             .arg(m_pluginId));
+        return false;
+    }
+    if (!QSslSocket::supportsSsl()) {
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: Qt TLS backend unavailable")
+                            .arg(m_pluginId));
         return false;
     }
 
@@ -503,11 +502,22 @@ void ScriptPluginApi::finishOpenAIRequest(QNetworkReply *reply)
             }
         }
 
-        const QJSValue callbackResult = callback.call({result});
+        const QJSValue callbackResult = runWithScriptDeadline(
+            m_engine, ScriptDeadlineMs,
+            [&callback, &result] { return callback.call({result}); });
         if (callbackResult.isError()) {
-            const QString error = Guard::cleanLogText(callbackResult.toString(), 200);
-            emit logMessage(QStringLiteral("Plugin %1 OpenAI callback error: %2")
-                                .arg(m_pluginId, error));
+            ++m_callbackFailures;
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI callback failed (%2/3)")
+                                .arg(m_pluginId).arg(m_callbackFailures));
+            if (m_callbackFailures >= 3) {
+                m_disabled = true;
+                m_handlers.clear();
+                emit logMessage(QStringLiteral(
+                    "Plugin %1 disabled after repeated OpenAI callback failures")
+                    .arg(m_pluginId));
+            }
+        } else {
+            m_callbackFailures = 0;
         }
     }
 
