@@ -234,8 +234,11 @@ bool ScriptPluginApi::openAIChat(const QJSValue &requestValue,
         return false;
     }
 
-    const int messageCount = messagesValue.property(QStringLiteral("length")).toInt(-1);
-    if (messageCount < 1 || messageCount > static_cast<int>(MaxOpenAIMessages)) {
+    const double rawMessageCount =
+        messagesValue.property(QStringLiteral("length")).toNumber();
+    if (!std::isfinite(rawMessageCount) || rawMessageCount < 1.0
+        || rawMessageCount > static_cast<double>(MaxOpenAIMessages)
+        || std::floor(rawMessageCount) != rawMessageCount) {
         apiKeyBytes.fill('\0');
         apiKey.fill(QChar(u'\0'));
         emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid message count")
@@ -243,10 +246,11 @@ bool ScriptPluginApi::openAIChat(const QJSValue &requestValue,
         return false;
     }
 
+    const int messageCount = static_cast<int>(rawMessageCount);
     QJsonArray messages;
     qsizetype messageBytes = 0;
     for (int i = 0; i < messageCount; ++i) {
-        const QJSValue item = messagesValue.property(i);
+        const QJSValue item = messagesValue.property(static_cast<quint32>(i));
         if (!item.isObject()) {
             apiKeyBytes.fill('\0');
             apiKey.fill(QChar(u'\0'));
@@ -296,8 +300,11 @@ bool ScriptPluginApi::openAIChat(const QJSValue &requestValue,
     }
 
     const QJSValue maxTokensValue = requestValue.property(QStringLiteral("max_tokens"));
-    const int maxTokens = maxTokensValue.isUndefined() ? 512 : maxTokensValue.toInt(-1);
-    if (maxTokens < 1 || maxTokens > 4096) {
+    const double rawMaxTokens = maxTokensValue.isUndefined()
+        ? 512.0 : maxTokensValue.toNumber();
+    if ((!maxTokensValue.isUndefined() && !maxTokensValue.isNumber())
+        || !std::isfinite(rawMaxTokens) || rawMaxTokens < 1.0
+        || rawMaxTokens > 4096.0 || std::floor(rawMaxTokens) != rawMaxTokens) {
         apiKeyBytes.fill('\0');
         apiKey.fill(QChar(u'\0'));
         emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: max_tokens out of range")
@@ -305,6 +312,7 @@ bool ScriptPluginApi::openAIChat(const QJSValue &requestValue,
         return false;
     }
 
+    const int maxTokens = static_cast<int>(rawMaxTokens);
     const QJSValue temperatureValue = requestValue.property(QStringLiteral("temperature"));
     const double temperature = temperatureValue.isUndefined()
         ? 0.7 : temperatureValue.toNumber();
