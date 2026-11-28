@@ -17,13 +17,97 @@ namespace {
 volatile std::sig_atomic_t g_stopRequested = 0;
 void requestStop(int) { g_stopRequested = 1; }
 
+enum class LogLevel {
+    Error = 0,
+    Warn = 1,
+    Info = 2,
+    Debug = 3,
+    Trace = 4
+};
+
+LogLevel g_logLevel = LogLevel::Error;
+
+LogLevel classifyLogMessage(const QString &message)
+{
+    const QString text = message.toLower();
+
+    static const QStringList errorTerms{
+        QStringLiteral("error"), QStringLiteral("failed"),
+        QStringLiteral("failure"), QStringLiteral("rejected"),
+        QStringLiteral("invalid"), QStringLiteral("could not"),
+        QStringLiteral("unable"), QStringLiteral("timed out"),
+        QStringLiteral("timeout"), QStringLiteral("denied"),
+        QStringLiteral("refused"), QStringLiteral("not available"),
+        QStringLiteral("not found"), QStringLiteral("mismatch"),
+        QStringLiteral("exception"), QStringLiteral("fatal"),
+        QStringLiteral("credential error"), QStringLiteral("authentication request")
+    };
+    for (const QString &term : errorTerms) {
+        if (text.contains(term))
+            return LogLevel::Error;
+    }
+
+    static const QStringList warningTerms{
+        QStringLiteral("disconnected"), QStringLiteral("reconnect"),
+        QStringLiteral("retry"), QStringLiteral("ignored"),
+        QStringLiteral("skipped"), QStringLiteral("disabled"),
+        QStringLiteral("rejected by core"), QStringLiteral("could not")
+    };
+    for (const QString &term : warningTerms) {
+        if (text.contains(term))
+            return LogLevel::Warn;
+    }
+
+    static const QStringList debugTerms{
+        QStringLiteral("received frame"), QStringLiteral("payload decoded"),
+        QStringLiteral("command decoded"), QStringLiteral("packet queued"),
+        QStringLiteral("request queued"), QStringLiteral("heartbeat"),
+        QStringLiteral("viewer entry report accepted"),
+        QStringLiteral("first incoming danmaku"),
+        QStringLiteral("danmaku request queued")
+    };
+    for (const QString &term : debugTerms) {
+        if (text.contains(term))
+            return LogLevel::Debug;
+    }
+
+    return LogLevel::Info;
+}
+
 void writeLog(const QString &message)
 {
+    if (static_cast<int>(classifyLogMessage(message))
+        > static_cast<int>(g_logLevel))
+        return;
+
     QTextStream out(stdout);
     const QString safeMessage = blkt::Guard::redact(
         blkt::Guard::cleanLogText(message, 2048));
     out << QDateTime::currentDateTime().toString(Qt::ISODate)
         << " " << safeMessage << Qt::endl;
+}
+
+bool parseLogLevel(const QString &value, LogLevel *level)
+{
+    if (!level)
+        return false;
+
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("error"))
+        *level = LogLevel::Error;
+    else if (normalized == QStringLiteral("warn")
+             || normalized == QStringLiteral("warning"))
+        *level = LogLevel::Warn;
+    else if (normalized == QStringLiteral("info"))
+        *level = LogLevel::Info;
+    else if (normalized == QStringLiteral("debug"))
+        *level = LogLevel::Debug;
+    else if (normalized == QStringLiteral("trace"))
+        *level = LogLevel::Trace;
+    else
+        return false;
+
+    return true;
 }
 }
 
@@ -54,12 +138,24 @@ int main(int argc, char *argv[])
         QStringLiteral("plugin-openai"),
         QStringLiteral("Grant the named allowed plugin permission to call an OpenAI-compatible HTTPS API."),
         QStringLiteral("plugin-name"));
+    const QCommandLineOption logLevelOption(
+        QStringLiteral("log-level"),
+        QStringLiteral("Set terminal log verbosity: error, warn, info, debug, trace (default: error)."),
+        QStringLiteral("level"),
+        QStringLiteral("error"));
 
     parser.addOption(roomOption);
     parser.addOption(pluginOption);
     parser.addOption(pluginSendOption);
     parser.addOption(pluginOpenAIOption);
+    parser.addOption(logLevelOption);
     parser.process(app);
+
+    if (!parseLogLevel(parser.value(logLevelOption), &g_logLevel)) {
+        QTextStream(stderr)
+            << "Invalid --log-level. Supported values: error, warn, info, debug, trace.\n";
+        return 2;
+    }
 
     const QString roomId = parser.value(roomOption).trimmed();
     if (!roomId.isEmpty()) {
