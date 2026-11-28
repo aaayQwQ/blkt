@@ -84,6 +84,18 @@ target_link_libraries(blkt_plugin_budget_smoke PRIVATE
 add_test(NAME plugin_event_execution_budget COMMAND blkt_plugin_budget_smoke)
 set_tests_properties(plugin_event_execution_budget PROPERTIES TIMEOUT 5)
 
+add_executable(blkt_plugin_openai_smoke
+    src/plugin/plugin_openai_smoke.cpp
+    src/plugin/ScriptPluginManager.cpp
+    src/core/Core.cpp
+    src/core/Guard.cpp
+)
+target_link_libraries(blkt_plugin_openai_smoke PRIVATE
+    Qt6::Core Qt6::Network Qt6::Qml Threads::Threads
+)
+add_test(NAME plugin_openai_security_validation COMMAND blkt_plugin_openai_smoke)
+set_tests_properties(plugin_openai_security_validation PROPERTIES TIMEOUT 5)
+
 if(APPLE)
     install(TARGETS blkt BUNDLE DESTINATION .)
 else()

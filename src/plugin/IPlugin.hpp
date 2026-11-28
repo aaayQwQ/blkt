@@ -22,7 +22,8 @@ enum class Permission : quint32 {
     ReceiveGuard       = 1u << 10,
     ReceiveComboGift   = 1u << 11,
     ReceiveOnline      = 1u << 12,
-    ReceiveRoomStats   = 1u << 13
+    ReceiveRoomStats   = 1u << 13,
+    OpenAIRequest      = 1u << 14
 };
 Q_DECLARE_FLAGS(Permissions, Permission)
 Q_DECLARE_OPERATORS_FOR_FLAGS(Permissions)

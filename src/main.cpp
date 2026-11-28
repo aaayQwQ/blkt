@@ -50,10 +50,15 @@ int main(int argc, char *argv[])
         QStringLiteral("plugin-send-message"),
         QStringLiteral("Grant the named allowed plugin permission to send messages."),
         QStringLiteral("plugin-name"));
+    const QCommandLineOption pluginOpenAIOption(
+        QStringLiteral("plugin-openai"),
+        QStringLiteral("Grant the named allowed plugin permission to call an OpenAI-compatible HTTPS API."),
+        QStringLiteral("plugin-name"));
 
     parser.addOption(roomOption);
     parser.addOption(pluginOption);
     parser.addOption(pluginSendOption);
+    parser.addOption(pluginOpenAIOption);
     parser.process(app);
 
     const QString roomId = parser.value(roomOption).trimmed();
@@ -66,6 +71,7 @@ int main(int argc, char *argv[])
 
     const QStringList allowedPlugins = parser.values(pluginOption);
     const QStringList sendMessagePlugins = parser.values(pluginSendOption);
+    const QStringList openAIPlugins = parser.values(pluginOpenAIOption);
     static const QRegularExpression pluginPattern(QStringLiteral("^[A-Za-z0-9_-]{1,48}$"));
     for (const QString &id : allowedPlugins) {
         if (!pluginPattern.match(id).hasMatch()) {
@@ -76,6 +82,12 @@ int main(int argc, char *argv[])
     for (const QString &id : sendMessagePlugins) {
         if (!pluginPattern.match(id).hasMatch() || !allowedPlugins.contains(id)) {
             QTextStream(stderr) << "--plugin-send-message requires the same name in --allow-plugin.\n";
+            return 2;
+        }
+    }
+    for (const QString &id : openAIPlugins) {
+        if (!pluginPattern.match(id).hasMatch() || !allowedPlugins.contains(id)) {
+            QTextStream(stderr) << "--plugin-openai requires the same name in --allow-plugin.\n";
             return 2;
         }
     }
@@ -94,7 +106,7 @@ int main(int argc, char *argv[])
                      [](const QString &message) { writeLog(message); });
     const QString pluginDirectory = QDir(appDirectory).filePath(QStringLiteral("plugins"));
     blkt::ScriptPluginManager plugins(
-        &core, pluginDirectory, allowedPlugins, sendMessagePlugins);
+        &core, pluginDirectory, allowedPlugins, sendMessagePlugins, openAIPlugins);
     if (!plugins.start()) {
         QTextStream(stderr) << "Plugin manager initialization failed.\n";
         credentials.clear();

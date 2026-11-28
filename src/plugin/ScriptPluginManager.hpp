@@ -15,6 +15,9 @@
 #include <QVariantMap>
 #include <QElapsedTimer>
 
+class QNetworkAccessManager;
+class QNetworkReply;
+
 namespace blkt {
 class Core;
 
@@ -24,8 +27,10 @@ class ScriptPluginApi final : public QObject
 public:
     ScriptPluginApi(Core *core, QJSEngine *engine, QString pluginId,
                     Permissions permissions, QObject *parent = nullptr);
+    ~ScriptPluginApi() override;
 
     Q_INVOKABLE bool on(const QString &eventName, const QJSValue &callback);
+    Q_INVOKABLE bool openAIChat(const QJSValue &request, const QJSValue &callback);
     Q_INVOKABLE bool sendMessage(const QString &text);
     Q_INVOKABLE QVariantMap giftInfo(const QString &giftId) const;
     Q_INVOKABLE void log(const QString &message);
@@ -37,13 +42,18 @@ signals:
     void logMessage(const QString &message);
 
 private:
+    void finishOpenAIRequest(QNetworkReply *reply);
+
     Core *m_core = nullptr;
     QJSEngine *m_engine = nullptr;
+    QNetworkAccessManager *m_aiNetwork = nullptr;
+    QHash<QNetworkReply *, QJSValue> m_pendingAiCallbacks;
     QString m_pluginId;
     Permissions m_permissions{};
     QHash<QString, QList<QJSValue>> m_handlers;
     int m_callbackFailures = 0;
     bool m_disabled = false;
+    bool m_shuttingDown = false;
 };
 
 class ScriptPluginManager final : public QObject
@@ -53,6 +63,7 @@ public:
     ScriptPluginManager(Core *core, const QString &directory,
                         const QStringList &allowedPluginIds,
                         const QStringList &sendMessagePluginIds,
+                        const QStringList &openAIPluginIds = {},
                         QObject *parent = nullptr);
     ~ScriptPluginManager() override;
 
@@ -76,6 +87,7 @@ private:
     QDir m_directory;
     QSet<QString> m_allowedIds;
     QSet<QString> m_sendMessageIds;
+    QSet<QString> m_openAIIds;
     QMap<QString, Entry *> m_plugins;
     bool m_started = false;
 };

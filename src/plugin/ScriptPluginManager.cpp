@@ -5,7 +5,19 @@
 
 #include <QFile>
 #include <QElapsedTimer>
+#include <QHostAddress>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QSslConfiguration>
+#include <QSslError>
+#include <QSslSocket>
+#include <QTimer>
+#include <cmath>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -21,6 +33,13 @@ constexpr int MaxHandlersPerEvent = 8;
 constexpr int MaxCallbacksPerEvent = 64;
 constexpr int EventExecutionBudgetMs = 250;
 constexpr int ScriptDeadlineMs = 250;
+constexpr qsizetype MaxOpenAIRequestBytes = 64 * 1024;
+constexpr qint64 MaxOpenAIResponseBytes = 1024 * 1024;
+constexpr qsizetype MaxOpenAIMessages = 24;
+constexpr qsizetype MaxOpenAIMessageBytes = 16 * 1024;
+constexpr qsizetype MaxOpenAIKeyBytes = 4096;
+constexpr qsizetype MaxOpenAIContentChars = 16384;
+constexpr int OpenAITimeoutMs = 45000;
 
 bool safePluginId(const QString &id)
 {
@@ -60,8 +79,24 @@ QJSValue runWithScriptDeadline(QJSEngine *engine, int timeoutMs,
 ScriptPluginApi::ScriptPluginApi(Core *core, QJSEngine *engine, QString pluginId,
                                  Permissions permissions, QObject *parent)
     : QObject(parent), m_core(core), m_engine(engine),
+      m_aiNetwork(new QNetworkAccessManager(this)),
       m_pluginId(std::move(pluginId)), m_permissions(permissions)
 {
+}
+
+ScriptPluginApi::~ScriptPluginApi()
+{
+    m_shuttingDown = true;
+    const auto replies = m_pendingAiCallbacks.keys();
+    m_pendingAiCallbacks.clear();
+    for (QNetworkReply *reply : replies) {
+        if (!reply)
+            continue;
+        disconnect(reply, nullptr, this, nullptr);
+        if (!reply->isFinished())
+            reply->abort();
+        reply->deleteLater();
+    }
 }
 
 bool ScriptPluginApi::on(const QString &eventName, const QJSValue &callback)
@@ -107,6 +142,368 @@ bool ScriptPluginApi::on(const QString &eventName, const QJSValue &callback)
     emit logMessage(QStringLiteral("Plugin %1 registered '%2' event handler")
                         .arg(m_pluginId, eventName));
     return true;
+}
+
+bool ScriptPluginApi::openAIChat(const QJSValue &requestValue,
+                                 const QJSValue &callback)
+{
+    if (m_disabled || m_shuttingDown || !m_engine
+        || !hasPermission(m_permissions, Permission::OpenAIRequest)) {
+        emit logMessage(QStringLiteral(
+            "Plugin %1 OpenAI request denied: --plugin-openai permission is required")
+            .arg(m_pluginId));
+        return false;
+    }
+    if (!requestValue.isObject() || !callback.isCallable()) {
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid arguments")
+                            .arg(m_pluginId));
+        return false;
+    }
+    if (!m_pendingAiCallbacks.isEmpty()) {
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: request already active")
+                            .arg(m_pluginId));
+        return false;
+    }
+    if (!QSslSocket::supportsSsl()) {
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: Qt TLS backend unavailable")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    const QJSValue endpointValue = requestValue.property(QStringLiteral("endpoint"));
+    const QJSValue keyValue = requestValue.property(QStringLiteral("api_key"));
+    const QJSValue modelValue = requestValue.property(QStringLiteral("model"));
+    const QJSValue messagesValue = requestValue.property(QStringLiteral("messages"));
+    if (!endpointValue.isString() || !keyValue.isString()
+        || !modelValue.isString() || !messagesValue.isArray()) {
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: missing request fields")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    const QString endpointText = endpointValue.toString().trimmed();
+    const QUrl endpoint(endpointText, QUrl::StrictMode);
+    const QString host = endpoint.host().toLower();
+    QHostAddress literalAddress;
+    const bool localSuffix =
+        host == QStringLiteral("localhost")
+        || host.endsWith(QStringLiteral(".localhost"))
+        || host.endsWith(QStringLiteral(".local"))
+        || host.endsWith(QStringLiteral(".internal"))
+        || host.endsWith(QStringLiteral(".test"))
+        || host.endsWith(QStringLiteral(".home.arpa"));
+    if (endpointText.size() > 2048 || !endpoint.isValid()
+        || endpoint.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) != 0
+        || host.isEmpty() || !host.contains(QLatin1Char('.'))
+        || host.endsWith(QLatin1Char('.')) || localSuffix
+        || literalAddress.setAddress(host)
+        || !endpoint.userInfo().isEmpty() || !endpoint.fragment().isEmpty()
+        || endpoint.path().isEmpty()) {
+        emit logMessage(QStringLiteral(
+            "Plugin %1 OpenAI request rejected: endpoint must be a public HTTPS URL")
+            .arg(m_pluginId));
+        return false;
+    }
+
+    QString apiKey = keyValue.toString();
+    QByteArray apiKeyBytes = apiKey.toUtf8();
+    bool invalidKey = apiKeyBytes.isEmpty() || apiKeyBytes.size() > MaxOpenAIKeyBytes;
+    for (const QChar ch : apiKey) {
+        if (ch.isSpace() || ch.isNull() || ch.unicode() < 0x20
+            || ch.unicode() == 0x7f) {
+            invalidKey = true;
+            break;
+        }
+    }
+    if (invalidKey) {
+        apiKeyBytes.fill('\0');
+        apiKey.fill(QChar(u'\0'));
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid API key")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    const QString model = modelValue.toString().trimmed();
+    static const QRegularExpression modelPattern(
+        QStringLiteral("^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"));
+    if (!modelPattern.match(model).hasMatch()) {
+        apiKeyBytes.fill('\0');
+        apiKey.fill(QChar(u'\0'));
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid model")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    const int messageCount = messagesValue.property(QStringLiteral("length")).toInt(-1);
+    if (messageCount < 1 || messageCount > static_cast<int>(MaxOpenAIMessages)) {
+        apiKeyBytes.fill('\0');
+        apiKey.fill(QChar(u'\0'));
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid message count")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    QJsonArray messages;
+    qsizetype messageBytes = 0;
+    for (int i = 0; i < messageCount; ++i) {
+        const QJSValue item = messagesValue.property(i);
+        if (!item.isObject()) {
+            apiKeyBytes.fill('\0');
+            apiKey.fill(QChar(u'\0'));
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid message")
+                                .arg(m_pluginId));
+            return false;
+        }
+
+        const QJSValue roleValue = item.property(QStringLiteral("role"));
+        const QJSValue contentValue = item.property(QStringLiteral("content"));
+        if (!roleValue.isString() || !contentValue.isString()) {
+            apiKeyBytes.fill('\0');
+            apiKey.fill(QChar(u'\0'));
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid message fields")
+                                .arg(m_pluginId));
+            return false;
+        }
+
+        const QString role = roleValue.toString();
+        const QString content = contentValue.toString();
+        if ((role != QStringLiteral("system")
+             && role != QStringLiteral("user")
+             && role != QStringLiteral("assistant"))
+            || content.isEmpty() || content.size() > MaxOpenAIMessageBytes
+            || content.contains(QChar(u'\0'))) {
+            apiKeyBytes.fill('\0');
+            apiKey.fill(QChar(u'\0'));
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: unsupported message role or size")
+                                .arg(m_pluginId));
+            return false;
+        }
+
+        const QByteArray encodedContent = content.toUtf8();
+        messageBytes += encodedContent.size();
+        if (messageBytes > MaxOpenAIRequestBytes) {
+            apiKeyBytes.fill('\0');
+            apiKey.fill(QChar(u'\0'));
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: messages too large")
+                                .arg(m_pluginId));
+            return false;
+        }
+
+        messages.append(QJsonObject{
+            {QStringLiteral("role"), role},
+            {QStringLiteral("content"), content}
+        });
+    }
+
+    const QJSValue maxTokensValue = requestValue.property(QStringLiteral("max_tokens"));
+    const int maxTokens = maxTokensValue.isUndefined() ? 512 : maxTokensValue.toInt(-1);
+    if (maxTokens < 1 || maxTokens > 4096) {
+        apiKeyBytes.fill('\0');
+        apiKey.fill(QChar(u'\0'));
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: max_tokens out of range")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    const QJSValue temperatureValue = requestValue.property(QStringLiteral("temperature"));
+    const double temperature = temperatureValue.isUndefined()
+        ? 0.7 : temperatureValue.toNumber();
+    if ((!temperatureValue.isUndefined() && !temperatureValue.isNumber())
+        || !std::isfinite(temperature) || temperature < 0.0 || temperature > 2.0) {
+        apiKeyBytes.fill('\0');
+        apiKey.fill(QChar(u'\0'));
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid temperature")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    QJsonObject payload{
+        {QStringLiteral("model"), model},
+        {QStringLiteral("messages"), messages},
+        {QStringLiteral("max_tokens"), maxTokens},
+        {QStringLiteral("temperature"), temperature}
+    };
+
+    const QJSValue reasoningValue =
+        requestValue.property(QStringLiteral("reasoning_effort"));
+    if (!reasoningValue.isUndefined()) {
+        if (!reasoningValue.isString()) {
+            apiKeyBytes.fill('\0');
+            apiKey.fill(QChar(u'\0'));
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid reasoning_effort")
+                                .arg(m_pluginId));
+            return false;
+        }
+        const QString effort = reasoningValue.toString();
+        if (effort != QStringLiteral("low")
+            && effort != QStringLiteral("medium")
+            && effort != QStringLiteral("high")) {
+            apiKeyBytes.fill('\0');
+            apiKey.fill(QChar(u'\0'));
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: unsupported reasoning_effort")
+                                .arg(m_pluginId));
+            return false;
+        }
+        payload.insert(QStringLiteral("reasoning_effort"), effort);
+    }
+
+    const QJSValue thinkingValue =
+        requestValue.property(QStringLiteral("enable_thinking"));
+    if (!thinkingValue.isUndefined()) {
+        if (!thinkingValue.isBool()) {
+            apiKeyBytes.fill('\0');
+            apiKey.fill(QChar(u'\0'));
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: invalid enable_thinking")
+                                .arg(m_pluginId));
+            return false;
+        }
+        payload.insert(QStringLiteral("enable_thinking"), thinkingValue.toBool());
+    }
+
+    const QByteArray body = QJsonDocument(payload).toJson(QJsonDocument::Compact);
+    if (body.isEmpty() || body.size() > MaxOpenAIRequestBytes) {
+        apiKeyBytes.fill('\0');
+        apiKey.fill(QChar(u'\0'));
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request rejected: encoded request too large")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    QSslConfiguration sslConfiguration = QSslConfiguration::defaultConfiguration();
+    sslConfiguration.setPeerVerifyMode(QSslSocket::VerifyPeer);
+    sslConfiguration.setProtocol(QSsl::TlsV1_2OrLater);
+
+    QNetworkRequest networkRequest(endpoint);
+    networkRequest.setHeader(QNetworkRequest::ContentTypeHeader,
+                             QStringLiteral("application/json"));
+    networkRequest.setRawHeader("Accept", "application/json");
+    networkRequest.setRawHeader("User-Agent", "BLKT/1.0 OpenAI-compatible client");
+    networkRequest.setRawHeader("Authorization",
+                                QByteArrayLiteral("Bearer ") + apiKeyBytes);
+    networkRequest.setSslConfiguration(sslConfiguration);
+    networkRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                                QNetworkRequest::ManualRedirectPolicy);
+
+    apiKeyBytes.fill('\0');
+    apiKey.fill(QChar(u'\0'));
+    if (!m_aiNetwork)
+        m_aiNetwork = new QNetworkAccessManager(this);
+
+    QNetworkReply *reply = m_aiNetwork->post(networkRequest, body);
+    if (!reply) {
+        emit logMessage(QStringLiteral("Plugin %1 OpenAI request could not be created")
+                            .arg(m_pluginId));
+        return false;
+    }
+
+    m_pendingAiCallbacks.insert(reply, callback);
+    reply->setReadBufferSize(MaxOpenAIResponseBytes + 1);
+
+    auto *timeout = new QTimer(reply);
+    timeout->setSingleShot(true);
+    timeout->setInterval(OpenAITimeoutMs);
+    connect(timeout, &QTimer::timeout, reply, [reply] {
+        reply->setProperty("blkt_openai_timeout", true);
+        reply->abort();
+    });
+    connect(reply, &QIODevice::readyRead, reply, [reply] {
+        if (reply->bytesAvailable() > MaxOpenAIResponseBytes) {
+            reply->setProperty("blkt_openai_too_large", true);
+            reply->abort();
+        }
+    });
+    connect(reply, &QNetworkReply::sslErrors, reply,
+            [reply](const QList<QSslError> &) {
+        reply->setProperty("blkt_openai_tls_error", true);
+        reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, timeout, &QTimer::stop);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply] { finishOpenAIRequest(reply); });
+    timeout->start();
+
+    emit logMessage(QStringLiteral("Plugin %1 OpenAI HTTPS request queued").arg(m_pluginId));
+    return true;
+}
+
+void ScriptPluginApi::finishOpenAIRequest(QNetworkReply *reply)
+{
+    if (!reply)
+        return;
+
+    const QJSValue callback = m_pendingAiCallbacks.take(reply);
+    QJSValue result;
+    if (!m_shuttingDown && !m_disabled && m_engine && callback.isCallable()) {
+        result = m_engine->newObject();
+        result.setProperty(QStringLiteral("ok"), false);
+
+        const auto fail = [&result](const QString &message) {
+            result.setProperty(QStringLiteral("error"), message);
+        };
+
+        if (reply->property("blkt_openai_timeout").toBool()) {
+            fail(QStringLiteral("Request timed out"));
+        } else if (reply->property("blkt_openai_tls_error").toBool()) {
+            fail(QStringLiteral("TLS certificate verification failed"));
+        } else if (reply->property("blkt_openai_too_large").toBool()) {
+            fail(QStringLiteral("Response exceeded the 1 MiB limit"));
+        } else if (reply->attribute(QNetworkRequest::RedirectionTargetAttribute).isValid()) {
+            fail(QStringLiteral("Redirects are disabled for credential safety"));
+        } else {
+            const int statusCode =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (reply->error() != QNetworkReply::NoError) {
+                fail(statusCode > 0
+                    ? QStringLiteral("HTTPS request failed (HTTP %1)").arg(statusCode)
+                    : QStringLiteral("HTTPS transport failed"));
+            } else if (statusCode < 200 || statusCode >= 300) {
+                fail(QStringLiteral("API returned HTTP %1").arg(statusCode));
+            } else {
+                const QByteArray responseBody = reply->read(MaxOpenAIResponseBytes + 1);
+                if (responseBody.size() > MaxOpenAIResponseBytes) {
+                    fail(QStringLiteral("Response exceeded the 1 MiB limit"));
+                } else {
+                    QJsonParseError parseError;
+                    const QJsonDocument document =
+                        QJsonDocument::fromJson(responseBody, &parseError);
+                    if (parseError.error != QJsonParseError::NoError
+                        || !document.isObject()) {
+                        fail(QStringLiteral("API returned invalid JSON"));
+                    } else {
+                        const QJsonArray choices =
+                            document.object().value(QStringLiteral("choices")).toArray();
+                        const QJsonObject firstChoice =
+                            choices.isEmpty() ? QJsonObject{} : choices.first().toObject();
+                        const QJsonObject message =
+                            firstChoice.value(QStringLiteral("message")).toObject();
+                        const QJsonValue contentValue =
+                            message.value(QStringLiteral("content"));
+                        if (!contentValue.isString()) {
+                            fail(QStringLiteral("API response has no text content"));
+                        } else {
+                            const QString content = contentValue.toString();
+                            if (content.isEmpty() || content.size() > MaxOpenAIContentChars) {
+                                fail(QStringLiteral("Model response is empty or too large"));
+                            } else {
+                                result.setProperty(QStringLiteral("ok"), true);
+                                result.setProperty(QStringLiteral("content"), content);
+                                result.setProperty(QStringLiteral("error"), QString());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        const QJSValue callbackResult = callback.call({result});
+        if (callbackResult.isError()) {
+            const QString error = Guard::cleanLogText(callbackResult.toString(), 200);
+            emit logMessage(QStringLiteral("Plugin %1 OpenAI callback error: %2")
+                                .arg(m_pluginId, error));
+        }
+    }
+
+    reply->deleteLater();
 }
 
 bool ScriptPluginApi::sendMessage(const QString &text)
@@ -196,6 +593,7 @@ bool ScriptPluginApi::dispatch(const QString &eventName, const QVariantMap &even
 ScriptPluginManager::ScriptPluginManager(Core *core, const QString &directory,
                                          const QStringList &allowedPluginIds,
                                          const QStringList &sendMessagePluginIds,
+                                         const QStringList &openAIPluginIds,
                                          QObject *parent)
     : QObject(parent), m_core(core), m_directory(QDir(directory))
 {
@@ -205,6 +603,9 @@ ScriptPluginManager::ScriptPluginManager(Core *core, const QString &directory,
     for (const QString &id : sendMessagePluginIds)
         if (safePluginId(id) && m_allowedIds.contains(id))
             m_sendMessageIds.insert(id);
+    for (const QString &id : openAIPluginIds)
+        if (safePluginId(id) && m_allowedIds.contains(id))
+            m_openAIIds.insert(id);
 
     if (m_core) {
         connect(m_core, &Core::messageReceived, this, &ScriptPluginManager::dispatchMessage);
@@ -308,6 +709,8 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
         | permissionFlag(Permission::ReceiveRoomStats);
     if (m_sendMessageIds.contains(id))
         permissions |= permissionFlag(Permission::SendMessage);
+    if (m_openAIIds.contains(id))
+        permissions |= permissionFlag(Permission::OpenAIRequest);
 
     entry->api = new ScriptPluginApi(m_core, entry->engine, id, permissions, entry->engine);
     connect(entry->api, &ScriptPluginApi::logMessage, m_core, &Core::logMessage);
@@ -315,7 +718,7 @@ bool ScriptPluginManager::loadPlugin(const QFileInfo &scriptInfo)
         QStringLiteral("BLKT"), entry->engine->newQObject(entry->api));
 
     const QJSValue apiTypes = entry->engine->evaluate(
-        QStringLiteral("[typeof BLKT, typeof BLKT.on, typeof BLKT.sendMessage, typeof BLKT.log].join(',')"));
+        QStringLiteral("[typeof BLKT, typeof BLKT.on, typeof BLKT.sendMessage, typeof BLKT.log, typeof BLKT.openAIChat].join(',')"));
     emit m_core->logMessage(QStringLiteral("Plugin %1 JavaScript API types: %2")
                                 .arg(id, Guard::cleanLogText(apiTypes.toString(), 128)));
 

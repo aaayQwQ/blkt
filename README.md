@@ -67,6 +67,7 @@ The plugin API:
 - `BLKT.giftInfo(giftId)` — query the in-memory gift catalog.
 - `BLKT.log(text)` — write a bounded message to the host log.
 - `BLKT.sendMessage(text)` — send to the active room, only when separately granted.
+- `BLKT.openAIChat(request, callback)` — asynchronous OpenAI-compatible Chat Completions HTTPS request, only with `--plugin-openai`. The callback receives `{ ok, content, error }`.
 
 Platform events contain `roomId`, `type`, `timestamp`, and normalized scalar fields such as `user`, `uid`, `text`, `count`, `price`, `level`, and `giftName`. Numeric IDs and counters are strings to preserve 64-bit precision in JavaScript. Unknown commands and unrecognized payload fields are not forwarded.
 
@@ -75,6 +76,14 @@ Message sending is denied by default. Grant it explicitly to an already allow-li
 ```powershell
 .\blkt.exe --room 123456 --allow-plugin welcome --plugin-send-message welcome
 ```
+
+AI plugins must receive the separate network permission. Example launch command:
+
+```powershell
+.\blkt.exe --room 123456 --allow-plugin openai_chat --plugin-openai openai_chat --plugin-send-message openai_chat
+```
+
+The OpenAI host bridge accepts `endpoint`, `api_key`, `model`, and a bounded `messages` array (system/user/assistant text messages). Optional `temperature`, `max_tokens`, `reasoning_effort`, and `enable_thinking` fields are validated before transmission. Each plugin may have only one active request; requests have a 45-second timeout, a 64 KiB request cap, and a 1 MiB response cap. The bridge requires HTTPS, normal TLS peer/certificate verification, TLS 1.2 or later, and disables redirects so authorization headers are never forwarded to a redirect target. It does not ignore TLS errors or execute response content. API keys are not logged or written by BLKT; a key placed in a JavaScript plugin file remains readable by anyone who can read that file.
 
 Each event dispatch has a shared 250 ms execution budget and a 64-callback cap. Each plugin can register at most 8 handlers per event; at most 16 plugins are loaded. Repeated callback errors or exhausted execution budgets disable the affected plugin.
 
