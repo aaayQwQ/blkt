@@ -448,54 +448,107 @@ void ScriptPluginApi::finishOpenAIRequest(QNetworkReply *reply)
             result.setProperty(QStringLiteral("error"), message);
         };
 
+        const bool responseTooLarge = reply->property("blkt_openai_too_large").toBool();
+        const QByteArray responseBody = responseTooLarge
+            ? QByteArray{} : reply->read(MaxOpenAIResponseBytes + 1);
+        QJsonObject responseObject;
+        if (!responseBody.isEmpty()
+            && responseBody.size() <= MaxOpenAIResponseBytes) {
+            QJsonParseError responseParseError;
+            const QJsonDocument responseDocument =
+                QJsonDocument::fromJson(responseBody, &responseParseError);
+            if (responseParseError.error == QJsonParseError::NoError
+                && responseDocument.isObject()) {
+                responseObject = responseDocument.object();
+            }
+        }
+
+        const auto apiErrorDetail = [&responseObject]() {
+            const QJsonValue errorValue = responseObject.value(QStringLiteral("error"));
+            const QJsonObject errorObject = errorValue.toObject();
+
+            QString code = errorObject.value(QStringLiteral("code")).toString();
+            if (code.isEmpty() && errorObject.value(QStringLiteral("code")).isDouble())
+                code = QString::number(errorObject.value(QStringLiteral("code")).toInt());
+            const QString type = errorObject.value(QStringLiteral("type")).toString();
+
+            QString message = errorObject.value(QStringLiteral("message")).toString();
+            if (message.isEmpty())
+                message = responseObject.value(QStringLiteral("message")).toString();
+            if (message.isEmpty() && errorValue.isString())
+                message = errorValue.toString();
+
+            QStringList details;
+            if (!code.isEmpty())
+                details.append(QStringLiteral("code=%1").arg(code));
+            if (!type.isEmpty())
+                details.append(QStringLiteral("type=%1").arg(type));
+            if (!message.isEmpty()) {
+                const QString safeMessage = Guard::redact(
+                    Guard::cleanLogText(message, 240));
+                if (!safeMessage.isEmpty())
+                    details.append(safeMessage);
+            }
+            return details.join(QStringLiteral("; "));
+        };
+
         if (reply->property("blkt_openai_timeout").toBool()) {
             fail(QStringLiteral("Request timed out"));
         } else if (reply->property("blkt_openai_tls_error").toBool()) {
             fail(QStringLiteral("TLS certificate verification failed"));
-        } else if (reply->property("blkt_openai_too_large").toBool()) {
+        } else if (responseTooLarge
+                   || responseBody.size() > MaxOpenAIResponseBytes) {
             fail(QStringLiteral("Response exceeded the 1 MiB limit"));
         } else if (reply->attribute(QNetworkRequest::RedirectionTargetAttribute).isValid()) {
             fail(QStringLiteral("Redirects are disabled for credential safety"));
         } else {
             const int statusCode =
                 reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (reply->error() != QNetworkReply::NoError) {
-                fail(statusCode > 0
-                    ? QStringLiteral("HTTPS request failed (HTTP %1)").arg(statusCode)
-                    : QStringLiteral("HTTPS transport failed"));
+            const QString detail = apiErrorDetail();
+            if (statusCode >= 400) {
+                QString error = QStringLiteral("API returned HTTP %1").arg(statusCode);
+                if (!detail.isEmpty())
+                    error += QStringLiteral(": ") + detail;
+                else if (statusCode == 404)
+                    error += QStringLiteral(
+                        "; check API_URL route (including /v1/chat/completions) and model access");
+                fail(error);
+            } else if (reply->error() != QNetworkReply::NoError) {
+                const QString transportDetail = Guard::redact(
+                    Guard::cleanLogText(reply->errorString(), 160));
+                fail(transportDetail.isEmpty()
+                    ? QStringLiteral("HTTPS transport failed")
+                    : QStringLiteral("HTTPS transport failed: %1").arg(transportDetail));
             } else if (statusCode < 200 || statusCode >= 300) {
-                fail(QStringLiteral("API returned HTTP %1").arg(statusCode));
+                fail(QStringLiteral("API returned unexpected HTTP status %1").arg(statusCode));
+            } else if (responseBody.isEmpty()) {
+                fail(QStringLiteral("API returned an empty response"));
             } else {
-                const QByteArray responseBody = reply->read(MaxOpenAIResponseBytes + 1);
-                if (responseBody.size() > MaxOpenAIResponseBytes) {
-                    fail(QStringLiteral("Response exceeded the 1 MiB limit"));
+                QJsonParseError parseError;
+                const QJsonDocument document =
+                    QJsonDocument::fromJson(responseBody, &parseError);
+                if (parseError.error != QJsonParseError::NoError
+                    || !document.isObject()) {
+                    fail(QStringLiteral("API returned invalid JSON"));
                 } else {
-                    QJsonParseError parseError;
-                    const QJsonDocument document =
-                        QJsonDocument::fromJson(responseBody, &parseError);
-                    if (parseError.error != QJsonParseError::NoError
-                        || !document.isObject()) {
-                        fail(QStringLiteral("API returned invalid JSON"));
+                    const QJsonArray choices =
+                        document.object().value(QStringLiteral("choices")).toArray();
+                    const QJsonObject firstChoice =
+                        choices.isEmpty() ? QJsonObject{} : choices.first().toObject();
+                    const QJsonObject message =
+                        firstChoice.value(QStringLiteral("message")).toObject();
+                    const QJsonValue contentValue =
+                        message.value(QStringLiteral("content"));
+                    if (!contentValue.isString()) {
+                        fail(QStringLiteral("API response has no text content"));
                     } else {
-                        const QJsonArray choices =
-                            document.object().value(QStringLiteral("choices")).toArray();
-                        const QJsonObject firstChoice =
-                            choices.isEmpty() ? QJsonObject{} : choices.first().toObject();
-                        const QJsonObject message =
-                            firstChoice.value(QStringLiteral("message")).toObject();
-                        const QJsonValue contentValue =
-                            message.value(QStringLiteral("content"));
-                        if (!contentValue.isString()) {
-                            fail(QStringLiteral("API response has no text content"));
+                        const QString content = contentValue.toString();
+                        if (content.isEmpty() || content.size() > MaxOpenAIContentChars) {
+                            fail(QStringLiteral("Model response is empty or too large"));
                         } else {
-                            const QString content = contentValue.toString();
-                            if (content.isEmpty() || content.size() > MaxOpenAIContentChars) {
-                                fail(QStringLiteral("Model response is empty or too large"));
-                            } else {
-                                result.setProperty(QStringLiteral("ok"), true);
-                                result.setProperty(QStringLiteral("content"), content);
-                                result.setProperty(QStringLiteral("error"), QString());
-                            }
+                            result.setProperty(QStringLiteral("ok"), true);
+                            result.setProperty(QStringLiteral("content"), content);
+                            result.setProperty(QStringLiteral("error"), QString());
                         }
                     }
                 }
