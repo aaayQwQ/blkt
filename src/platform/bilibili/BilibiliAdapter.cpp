@@ -981,8 +981,12 @@ void BilibiliAdapter::sendUserOnlineHeartbeat()
     const QUrl url(QStringLiteral("https://api.live.bilibili.com/User/userOnlineHeart"));
 
     QUrlQuery form;
-    form.addQueryItem(QStringLiteral("csrf"), m_csrf);
     form.addQueryItem(QStringLiteral("csrf_token"), m_csrf);
+    form.addQueryItem(QStringLiteral("csrf"), m_csrf);
+    // The web client submits visit_id as an explicit empty form field.
+    // Omitting it can make this legacy endpoint reject an otherwise valid
+    // authenticated session with API code -101.
+    form.addQueryItem(QStringLiteral("visit_id"), QString());
 
     QNetworkRequest request(url);
     request.setRawHeader("Cookie", m_cookie);
