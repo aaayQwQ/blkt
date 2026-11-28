@@ -58,10 +58,19 @@ LogLevel classifyLogMessage(const QString &message)
             return LogLevel::Warn;
     }
 
+    static const QStringList traceTerms{
+        QStringLiteral("received frame"),
+        QStringLiteral("payload decoded"),
+        QStringLiteral("command decoded")
+    };
+    for (const QString &term : traceTerms) {
+        if (text.contains(term))
+            return LogLevel::Trace;
+    }
+
     static const QStringList debugTerms{
-        QStringLiteral("received frame"), QStringLiteral("payload decoded"),
-        QStringLiteral("command decoded"), QStringLiteral("packet queued"),
-        QStringLiteral("request queued"), QStringLiteral("heartbeat"),
+        QStringLiteral("packet queued"), QStringLiteral("request queued"),
+        QStringLiteral("heartbeat"),
         QStringLiteral("viewer entry report accepted"),
         QStringLiteral("first incoming danmaku"),
         QStringLiteral("danmaku request queued")
